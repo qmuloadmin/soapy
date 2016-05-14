@@ -1,2 +1,2 @@
 # soapy
-Simple, Intuitive SOAP library
+Simple, Intuitive SOAP library for consuming web services
