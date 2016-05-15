@@ -4,9 +4,9 @@ Simple, Intuitive SOAP library for consuming web services. Written in Python, fo
 
 ## Dependencies
 
-..* CPython (or compatible) 3.0 or greater
-..* BeautifulSoup 4
-..* lxml
+ * CPython (or compatible) 3.0 or greater
+ * BeautifulSoup 4
+ * lxml
 
 ## Overview
 
@@ -24,9 +24,9 @@ I spent weeks working with Suds trying to make an interface with it that would e
 
 Soapy consists of three components:
 
-..* Wsdl class
+ * Wsdl class
 
-..* Marshaller class
+ * Marshaller class
 
-..* Client class
+ * Client class
 
