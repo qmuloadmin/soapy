@@ -1,5 +1,8 @@
 from soapy.wsdl.element import Element
 
+""" Types are XML tags the reside inside a schema tag, inside the types tag
+ They are significantly different from normal elements, as they represent the elements in
+ the SOAP body as opposed to the WSDL itself """
 
 class TypeContainer(Element):
     """ Any <tag> defined in a schema that is not an element. In other words, it contains or

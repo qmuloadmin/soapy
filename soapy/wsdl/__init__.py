@@ -7,6 +7,7 @@ import os
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
+
 class Wsdl(Log):
     """ Class reads in WSDL and forms various child objects held together by this parent class
 	Which essentially converts wsdl objects inside 'definitions' into Python native objects """
@@ -131,7 +132,8 @@ class Wsdl(Log):
 
     def findTypeByName(self, name) -> Element:
 
-        """ Given a name, find the type and schema object """
+        """ Given a name, find the type and schema object
+         The name should include the namespace as bs4 provides """
 
         t = self.wsdl('types', recursive=False)
         ns, name = name.split(":")

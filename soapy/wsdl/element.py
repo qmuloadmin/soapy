@@ -1,6 +1,10 @@
 from soapy import Log
 from bs4 import Tag
 
+""" Elements defined in this module are used by both WSDL elements (model) and SOAP elements (types)
+ NOTE: The exception is Schema. I do not like its implementation and plan to fix it at some point. For now it's here
+ for lack of a better place. """
+
 class Namespace():
 
     """ Contains mapping to name and definition and allows dictionary-like reference """
@@ -41,6 +45,7 @@ class Namespace():
             raise KeyError("No namespace defined in this element with name {0}".format(ns))
 
 class Element():
+
     """ Base class for handling instantiation and name attribute for any WSDL element """
 
     def __init__(self, bsElement, parent, schema=None):

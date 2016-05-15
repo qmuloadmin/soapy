@@ -1,5 +1,7 @@
 from soapy.wsdl.element import Element
 
+""" Models are pythonic objects representing the XML tags in a WSDL, but outside of the Types tag """
+
 class Service(Element):
     """ Simplified, native Python representation of Service definitions in WSDL
 	Provides information on child (port) objects by name and service tag attribute information """
