@@ -17,33 +17,24 @@ class Service(Element):
             return self.__ports
 
 
-class Port(Element):
-    """ Simplified, native Python representation of ports as defined within services """
+class PortType(Element):
+    """ Simplified, native Python representation of portType definition in WSDL """
 
     @property
-    def binding(self) -> Binding:
+    def operations(self) -> tuple:
         try:
-            return self.__binding
+            return self.__operations
         except AttributeError:
-            self._log("Initializing binding attribute for port {0}".format(self.name), 5)
-            binding = self.bsElement['binding']
-            (ns, name) = binding.split(':')
-            self.__binding = Binding.fromName(name, self.parent)
-            return self.__binding
+            self._log("Initializing operations for portType {0} from wsdl".format(self.name), 5)
+            operations = list()
+            for operation in self.bsElement('operation', recursive=False):
+                operations.append(Operation(operation, self.parent))
+            self.__operations = tuple(operations)
+            return self.__operations
 
     @property
-    def location(self) -> str:
-        try:
-            return self.__location
-        except AttributeError:
-            self._log("Initializing location of Port based on address element", 5)
-            self.__location = self.bsElement('address', recursive=False)[0]['location']
-            self._log("Initialized location to {0}".format(self.__location), 4)
-            return self.__location
-
-    @location.setter
-    def location(self, location):
-        self.__location = location
+    def methods(self) -> tuple:
+        return self.operations
 
 
 class Binding(Element):
@@ -87,24 +78,33 @@ class Binding(Element):
             opName, self.name), 2)
 
 
-class PortType(Element):
-    """ Simplified, native Python representation of portType definition in WSDL """
+class Port(Element):
+    """ Simplified, native Python representation of ports as defined within services """
 
     @property
-    def operations(self) -> tuple:
+    def binding(self) -> Binding:
         try:
-            return self.__operations
+            return self.__binding
         except AttributeError:
-            self._log("Initializing operations for portType {0} from wsdl".format(self.name), 5)
-            operations = list()
-            for operation in self.bsElement('operation', recursive=False):
-                operations.append(Operation(operation, self.parent))
-            self.__operations = tuple(operations)
-            return self.__operations
+            self._log("Initializing binding attribute for port {0}".format(self.name), 5)
+            binding = self.bsElement['binding']
+            (ns, name) = binding.split(':')
+            self.__binding = Binding.fromName(name, self.parent)
+            return self.__binding
 
     @property
-    def methods(self) -> tuple:
-        return self.operations
+    def location(self) -> str:
+        try:
+            return self.__location
+        except AttributeError:
+            self._log("Initializing location of Port based on address element", 5)
+            self.__location = self.bsElement('address', recursive=False)[0]['location']
+            self._log("Initialized location to {0}".format(self.__location), 4)
+            return self.__location
+
+    @location.setter
+    def location(self, location):
+        self.__location = location
 
 
 class Message(Element):
@@ -127,7 +127,7 @@ class Part(Element):
         try:
             return self.__type
         except AttributeError:
-            self.__type = self.parent.findTypeByName(self.bsElement['element'].split(':')[1])
+            self.__type = self.parent.findTypeByName(self.bsElement['element'])
             return self.__type
 
     @property

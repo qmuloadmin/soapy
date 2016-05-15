@@ -1,26 +1,11 @@
 from soapy import Log
-from soapy.wsdl.element import Element
+from soapy.wsdl.types import *
+from soapy.wsdl.model import *
+from soapy.wsdl.element import Element,Schema,Namespace
 import time
 import os
 from bs4 import BeautifulSoup
 from bs4.element import Tag
-
-
-class Schema(Element):
-    """ Class that handles schema attributes and namespaces """
-
-    @property
-    def name(self) -> str:
-        return "anonymous"
-
-    @property
-    def parentNamespace(self) -> Namespace:
-        try:
-            return self.__parentNamespace
-        except AttributeError:
-            self.__parentNamespace = Namespace(self.parent.wsdl, self._log)
-            return self.__parentNamespace
-
 
 class Wsdl(Log):
     """ Class reads in WSDL and forms various child objects held together by this parent class
@@ -112,6 +97,14 @@ class Wsdl(Log):
             self.__schemas = tuple(schemas)
             return self.__schemas
 
+    @property
+    def namespace(self) -> Namespace:
+        try:
+            return self.__namespace
+        except AttributeError:
+            self.__namespace = Namespace(self.wsdl, self._log)
+            return self.__namespace
+
     @staticmethod
     def __downloadWsdl(url):
 
@@ -141,10 +134,13 @@ class Wsdl(Log):
         """ Given a name, find the type and schema object """
 
         t = self.wsdl('types', recursive=False)
+        ns, name = name.split(":")
         self._log("Searching all types for matching element with name {0}".format(name), 5)
         for schema in self.schemas:
-            tags = schema.bsElement("", {"name": name})
-            if len(tags) > 0:
-                return self.typeFactory(tags[0], schema)
+            if schema.name == self.namespace.resolveNamespace(ns):
+                self._log("Found schema matching namespace of {0}:{1}".format(ns,schema.name),5)
+                tags = schema.bsElement("", {"name": name})
+                if len(tags) > 0:
+                    return self.typeFactory(tags[0], schema)
         self._log("Unable to find Type based on name {0}".format(name), 1)
         return None

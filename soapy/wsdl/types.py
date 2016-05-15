@@ -65,12 +65,24 @@ class TypeElement(Element):
         return self.bsElement.get("minOccurs", "1")
 
     @property
+    def type(self):
+        return self.bsElement['type']
+
+    @property
     def children(self):
 
         """ Augmenting parent method definition to resolve soft children via type declarations """
 
-        children = list(super().children)
-
+        try:
+            return self.__children
+        except AttributeError:
+            children = list(super().children)
+            if len(children) == 0:
+                softChild = self.parent.findTypeByName(self.type)
+                if softChild is not None:
+                    children.append(softChild)
+            self.__children = tuple(children)
+            return self.__children
 
 
 class Attribute(Element):

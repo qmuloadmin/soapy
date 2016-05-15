@@ -1,8 +1,8 @@
-from soapy.wsdl import Wsdl,Schema
 from soapy import Log
 from bs4 import Tag
 
 class Namespace():
+
     """ Contains mapping to name and definition and allows dictionary-like reference """
 
     def __init__(self, parent, log):
@@ -15,7 +15,7 @@ class Namespace():
         return self._log
 
     @property
-    def parent(self) -> Element:
+    def parent(self) -> Tag:
         return self.__parent
 
     @property
@@ -69,7 +69,7 @@ class Element():
                 return cls(port, parent)
 
     @property
-    def schema(self) -> Schema:
+    def schema(self):
         return self.__schema
 
     @property
@@ -77,7 +77,7 @@ class Element():
         return self.__bsElement.get('name')
 
     @property
-    def parent(self) -> Wsdl:
+    def parent(self):
         return self.__parent
 
     @property
@@ -113,3 +113,15 @@ class Element():
 
     def _log(self, message, tl):
         self.parent._log(message, tl)
+
+
+class Schema(Element):
+    """ Class that handles schema attributes and namespaces """
+
+    @property
+    def name(self) -> str:
+
+        """ The name of a Schema is its targetNamespace, which is the closest thing to a QName a schema has """
+
+        return self.bsElement['targetNamespace']
+
