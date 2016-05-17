@@ -127,19 +127,28 @@ class Wsdl(Log):
             return SequenceType(element, self, schema)
         elif element.name == "attribute":
             return None
+        elif element.name == "complexContent":
+            return ComplexContent(element,self,schema)
+        elif element.name == "extension":
+            return Extension(element,self,schema)
         else:
             raise TypeError("XML Element Type <{0}> not yet implemented".format(element.name))
 
-    def findTypeByName(self, name) -> Element:
+    def findTypeByName(self, name, targetNs='') -> Element:
 
         """ Given a name, find the type and schema object
          The name should include the namespace as bs4 provides """
 
         t = self.wsdl('types', recursive=False)
-        ns, name = name.split(":")
+        try:
+            ns, name = name.split(":")
+            targetNs = self.namespace.resolveNamespace(ns)
+        except ValueError:
+            ns = "None"
+        self._log("Type resides in namespace of {0}".format(targetNs),5)
         self._log("Searching all types for matching element with name {0}".format(name), 5)
         for schema in self.schemas:
-            if schema.name == self.namespace.resolveNamespace(ns):
+            if schema.name == targetNs:
                 self._log("Found schema matching namespace of {0}:{1}".format(ns,schema.name),5)
                 tags = schema.bsElement("", {"name": name})
                 if len(tags) > 0:

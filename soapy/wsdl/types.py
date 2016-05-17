@@ -69,7 +69,10 @@ class TypeElement(Element):
 
     @property
     def type(self):
-        return self.bsElement['type']
+        try:
+            return self.bsElement['type']
+        except KeyError:
+            return None
 
     @property
     def children(self):
@@ -81,7 +84,7 @@ class TypeElement(Element):
         except AttributeError:
             children = list(super().children)
             if len(children) == 0:
-                softChild = self.parent.findTypeByName(self.type)
+                softChild = self.parent.findTypeByName(self.type, self.schema.name)
                 if softChild is not None:
                     children.append(softChild)
             self.__children = tuple(children)
@@ -107,6 +110,11 @@ class Attribute(Element):
 class ComplexType(TypeContainer):
     """ Class representing a dynamic container of simpler types """
 
+class ComplexContent(TypeContainer):
+    """ Class representing a dynamic container of other types """
+
+class Extension(TypeContainer):
+    """ Class representing a tag extending other types """
 
 class SequenceType(TypeContainer):
     """ Class representing an unnamed sequence of types """
