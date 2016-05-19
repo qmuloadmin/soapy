@@ -209,7 +209,8 @@ class Client(Log):
 
         self._buildEnvelope()
         self.log("Creating necessary HTTP headers", 5)
-        headers = {"SOAPAction": self.port.binding.getSoapAction(self.operation.name)}
+        headers = {"SOAPAction": self.port.binding.getSoapAction(self.operation.name),
+                   "Content-Type": "text/xml;charset=UTF-8"}
         self.log("Set custom headers to {0}".format(headers), 5)
         proxies = self._buildProxyDict()
         self.log("Calling web service at {0}".format(self.location), 3)
