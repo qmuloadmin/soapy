@@ -4,7 +4,7 @@ from soapy.wsdl.element import Element
 
 class Service(Element):
     """ Simplified, native Python representation of Service definitions in WSDL
-	Provides information on child (port) objects by name and service tag attribute information """
+    Provides information on child (port) objects by name and service tag attribute information """
 
     @property
     def ports(self) -> tuple:
@@ -41,8 +41,8 @@ class PortType(Element):
 
 class Binding(Element):
     """ Simplified, native python representation of a binding definition
-	Also provides enforcement that the style of the binding is document
-	as this library does not (currently) support other styles """
+    Also provides enforcement that the style of the binding is document
+    as this library does not (currently) support other styles """
 
     def __init__(self, bsElement, parent):
         super().__init__(bsElement, parent)
@@ -72,7 +72,7 @@ class Binding(Element):
                 soapOp = operation('operation')[0]
                 try:
                     return soapOp['soapAction']
-                except:
+                except KeyError:
                     self.log("Binding operation does not contain a soapAction element", 2)
                     return None
 

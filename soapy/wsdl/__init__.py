@@ -6,20 +6,20 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 from soapy import Log
-from soapy.wsdl.element import Element,Schema,Namespace
+from soapy.wsdl.element import *
 from soapy.wsdl.model import *
 from soapy.wsdl.types import *
 
 
 class Wsdl(Log):
     """ Class reads in WSDL and forms various child objects held together by this parent class
-	Which essentially converts wsdl objects inside 'definitions' into Python native objects """
+    Which essentially converts wsdl objects inside 'definitions' into Python native objects """
 
     def __init__(self, wsdl_location, tracelevel=1, **kArgs):
 
         """ wsdl_location is FQDN and URL of WSDL, must include protocol, e.g. http/file
-		If caching behavior is desired (to load native python objects instead of parsing
-		the XML each time, then provide keyword args of cache=FH where FH is a file handle """
+        If caching behavior is desired (to load native python objects instead of parsing
+        the XML each time, then provide keyword args of cache=FH where FH is a file handle """
 
         super().__init__(tracelevel)
 

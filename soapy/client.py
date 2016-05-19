@@ -1,3 +1,7 @@
+import requests
+from requests.auth import HTTPBasicAuth
+
+import soapy.marshal
 from soapy import Log
 from soapy.wsdl import Wsdl
 from soapy.wsdl.model import *
@@ -25,6 +29,15 @@ class Client(Log):
         # Initialize instance of Log using provided trace level
 
         super().__init__(tl)
+
+        # Initialize some default values
+
+        self.username = None
+        self.password = None
+        self.proxy = ""
+        self.proxyUser = ""
+        self.proxyPass = ""
+        self.__requestEnvelope = None
 
         # Initialize instance of Wsdl using provided information
         self.log("Initializing new wsdl object using url: {0}".format(
@@ -60,15 +73,19 @@ class Client(Log):
                 found = True
         if not found:
             self.log("Search for service matching name {0} failed; WDSL does not contain this service"
-                      .format(service), 1)
+                     .format(service), 1)
             raise ValueError("WSDL contains no service named {0}".format(service))
 
     @property
-    def wsdl(self):
+    def wsdl(self) -> Wsdl:
         return self.__wsdl
 
     @property
-    def operation(self):
+    def port(self) -> str:
+        return self.__port
+
+    @property
+    def operation(self) -> str:
         try:
             return self.__operation
         except AttributeError:
@@ -79,14 +96,15 @@ class Client(Log):
         def ops(service):
             for port in service.ports:
                 for operation in port.binding.type.operations:
-                    yield operation
+                    yield (port, operation)
         found = False
         if self.service is None:
             for service in self.wsdl.services:
-                for operation in ops(service):
+                for port, operation in ops(service):
                     if operation.name == operationName:
                         found = True
                         self.__operation = operation
+                        self.__port = port
                         self.__service = service
         else:
             for operation in ops(self.service):
@@ -105,7 +123,19 @@ class Client(Log):
         try:
             return self.__schema
         except:
-            raise RuntimeError("Must set operation before schema can be determined")
+            raise ValueError("Must set operation before schema can be determined")
+
+    @property
+    def location(self):
+        if self.operation is None:
+            raise ValueError("Must set operation before location can be determined")
+        return self.port.location
+
+    @location.setter
+    def location(self, new_location):
+        if self.operation is None:
+            raise ValueError("Must set operation before location can be determined")
+        self.port.location = new_location
 
     @property
     def inputs(self):
@@ -122,8 +152,79 @@ class Client(Log):
             except AttributeError:
                 raise RuntimeError("Must set operation before inputs can be determined")
 
+    @property
+    def requestEnvelope(self):
+        return self.__requestEnvelope
+
     def _buildEnvelope(self):
-        pass
+        self.log("Initializing marshaller for envelope", 5)
+        self.__requestEnvelope = soapy.marshal.Envelope(self)
+        self.log("Rendering request envelope", 5)
+        self.__requestEnvelope.render()
+
+    def _buildProxyDict(self) -> dict:
+        if self.proxy:
+            self._buildFinalProxyUrl()
+            return {"http": self.proxyUrl,
+                    "https": self.proxyUrl}
+        else:
+            return {}
+
+    def _buildFinalProxyUrl(self):
+        self.log("Building proxy Url with provided information", 5)
+        if self.proxyUser is not None:
+            import re
+            self.proxy = re.sub(r"^(https?://)([^@]+)$",
+                                   "\1{0}:{1}@\2"
+                                   .format(self.proxy,self.proxyPass),
+                                   self.proxyUrl)
+
+    def __call__(self, **kwargs):
+
+        """ Execute the web service operation. Operation must be set at minimum before this is possible
+         :keyword location: The URL/Location of the web service. Will override location specified in WSDL
+         :keyword username: The username for use in auth with the web service
+         :keyword password: The password paired with the username for web service authorization
+         :keyword proxyUrl: The URL for a HTTP/HTTPS proxy to be used, if any
+         :keyword proxyUser: The Username for basic http auth with the web proxy
+         :keyword proxyPass: The password for basic http auth with the web proxy """
+
+        if self.operation is None:
+            raise ValueError("Operation must be set before web service can be called")
+
+        keys = kwargs.keys()
+        if "location" in keys:
+            self.location = kwargs["location"]
+        if "username" in keys:
+            self.username = kwargs["username"]
+            self.password = kwargs["password"]
+        if "proxyUrl" in keys:
+            self.proxyUrl = kwargs["proxyUrl"]
+        if "proxyUser" in keys:
+            self.proxyUser = kwargs["proxyUser"]
+        if "proxyPass" in keys:
+            self.proxyPass = kwargs["proxyPass"]
+
+        self.log("Getting ready to call the web service", 4)
+
+        self._buildEnvelope()
+        self.log("Creating necessary HTTP headers", 5)
+        headers = {"SOAPAction": self.port.binding.getSoapAction(self.operation.name)}
+        self.log("Set custom headers to {0}".format(headers), 5)
+        proxies = self._buildProxyDict()
+        self.log("Calling web service at {0}".format(self.location), 3)
+        if self.username is None:
+            self.response = requests.post(self.location,
+                                          proxies=proxies,
+                                          data=self.requestEnvelope.xml,
+                                          headers=headers)
+        else:
+            self.response = requests.post(self.location,
+                                          auth=HTTPBasicAuth(self.username,self.password),
+                                          proxies=proxies,
+                                          data=self.requestEnvelope.xml,
+                                          headers=headers)
+        self.log("Web service call complete, status code is {0}".format(self.response.status_code),3)
 
 
 class InputBase:
@@ -196,6 +297,7 @@ class InputOptions(InputBase):
             i += 1
         s += '}'
         return s
+
 
 class InputElement(InputBase):
 
@@ -280,7 +382,7 @@ class InputElement(InputBase):
         return self.__ref
 
 
-class InputAttribute():
+class InputAttribute:
     
     """ An individual attribute of an input Element. A further abstraction of the
     Attribute object in soapy.wsdl.types """

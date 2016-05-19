@@ -1,8 +1,5 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 
-import soapy
-from soapy.wsdl.types import TypeElement
-
 
 class Marshaller(metaclass=ABCMeta):
 
@@ -31,7 +28,7 @@ class Envelope(Marshaller):
 
     """ Class to build the envelope """
 
-    def __init__(self, client: soapy.client.Client):
+    def __init__(self, client):
         self.__parts = client.operation.input.parts
         self.__schema = self.parts[0].type.schema
         self.log("Initializing new Envelope", 4)
@@ -171,7 +168,7 @@ class Element(Marshaller):
 
     """ Class for representing an Element's properties in terms of SOAP request rendering """
 
-    def __init__(self, envelope: Envelope, element: TypeElement, part: int, top_level=True):
+    def __init__(self, envelope: Envelope, element, part: int, top_level=True):
 
         """
         :param envelope: The instance of the parent Envelope class for this element
@@ -188,9 +185,9 @@ class Element(Marshaller):
         self.__part = part
         self.__definition = element
         if self.parent.schema.elementForm == "qualified" or self.__top_level:
-            self.__xml = "<{0}:{1} ".format(self.parent.targetNs, self.definition.name)
+            self.__xml = "<{0}:{1} ".format(self.parent.targetNs, self.definition.name.strip())
         else:
-            self.__xml = "<{0} ".format(self.definition.name)
+            self.__xml = "<{0} ".format(self.definition.name.strip())
         self.__children = tuple([Element(envelope, child, self.part, False)
                                 for child in self.definition.elementChildren])
 
@@ -199,7 +196,7 @@ class Element(Marshaller):
         return self.__part
 
     @property
-    def definition(self) -> TypeElement:
+    def definition(self):
         return self.__definition
 
     @property
@@ -249,17 +246,20 @@ class Element(Marshaller):
             if inputObj[attr.name].value is not None:
                 self.__xml += """{0}="{1}" """.format(attr.name, inputObj[attr.name].value)
 
-        self.__xml += ">\n"
+        self.__xml += ">"
 
         # Update inner xml, either using child xml values, or innerXml from inputObj
 
-        if inputObj.innerXml is None:
+        if inputObj.innerXml is not None:
+            self.__xml += inputObj.innerXml
+        elif inputObj.setable:
+            self.__xml += inputObj.value
+        else:
+            self.__xml += "\n"
             for each in self.children:
                 self.__xml += each.xml
-        else:
-            self.__xml += inputObj.innerXml
 
         if self.parent.schema.elementForm == "qualified" or self.__top_level:
-            self.__xml += "</{0}:{1}>\n".format(self.parent.targetNs, self.definition.name)
+            self.__xml += "</{0}:{1}>\n".format(self.parent.targetNs, self.definition.name.strip())
         else:
-            self.__xml += "</{0}>\n".format(self.definition.name)
+            self.__xml += "</{0}>\n".format(self.definition.name.strip())

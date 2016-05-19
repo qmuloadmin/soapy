@@ -1,6 +1,6 @@
 from bs4 import Tag
 
-import soapy.wsdl.types
+import soapy
 
 """ Elements defined in this module are used by both WSDL elements (model) and SOAP elements (types)
  NOTE: The exception is Schema. I do not like its implementation and plan to fix it at some point. For now it's here
