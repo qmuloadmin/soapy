@@ -11,7 +11,7 @@ class Service(Element):
         try:
             return self.__ports
         except AttributeError:
-            self._log("Initializing list of ports defined for service {0}".format(self.name), 5)
+            self.log("Initializing list of ports defined for service {0}".format(self.name), 5)
             ports = list()
             for port in self.bsElement('port', recursive=False):
                 ports.append(Port(port, self.parent))
@@ -27,7 +27,7 @@ class PortType(Element):
         try:
             return self.__operations
         except AttributeError:
-            self._log("Initializing operations for portType {0} from wsdl".format(self.name), 5)
+            self.log("Initializing operations for portType {0} from wsdl".format(self.name), 5)
             operations = list()
             for operation in self.bsElement('operation', recursive=False):
                 operations.append(Operation(operation, self.parent))
@@ -49,7 +49,7 @@ class Binding(Element):
         # Validate that the binding style is 'document'
         soapBinding = bsElement('binding', recursive=False)[0]
         if not soapBinding['style'] == "document":
-            self._log("Binding style not set to document. SoaPy can't handle non-document styles", 0)
+            self.log("Binding style not set to document. SoaPy can't handle non-document styles", 0)
             raise TypeError("Binding style not set to document. SoaPy can't handle non-document styles")
 
     @property
@@ -57,7 +57,7 @@ class Binding(Element):
         try:
             return self.__type
         except AttributeError:
-            self._log("Initializing portType from binding {0}".format(self.name), 5)
+            self.log("Initializing portType from binding {0}".format(self.name), 5)
             (ns, name) = self.bsElement['type'].split(":")
             self.__type = PortType.fromName(name, self.parent)
             return self.__type
@@ -73,10 +73,10 @@ class Binding(Element):
                 try:
                     return soapOp['soapAction']
                 except:
-                    self._log("Binding operation does not contain a soapAction element", 2)
+                    self.log("Binding operation does not contain a soapAction element", 2)
                     return None
 
-        self._log("Could not find matching operation, {0} in binding {1}".format(
+        self.log("Could not find matching operation, {0} in binding {1}".format(
             opName, self.name), 2)
 
 
@@ -88,7 +88,7 @@ class Port(Element):
         try:
             return self.__binding
         except AttributeError:
-            self._log("Initializing binding attribute for port {0}".format(self.name), 5)
+            self.log("Initializing binding attribute for port {0}".format(self.name), 5)
             binding = self.bsElement['binding']
             (ns, name) = binding.split(':')
             self.__binding = Binding.fromName(name, self.parent)
@@ -99,9 +99,9 @@ class Port(Element):
         try:
             return self.__location
         except AttributeError:
-            self._log("Initializing location of Port based on address element", 5)
+            self.log("Initializing location of Port based on address element", 5)
             self.__location = self.bsElement('address', recursive=False)[0]['location']
-            self._log("Initialized location to {0}".format(self.__location), 4)
+            self.log("Initialized location to {0}".format(self.__location), 4)
             return self.__location
 
     @location.setter
@@ -115,7 +115,7 @@ class Message(Element):
         try:
             return self.__parts
         except AttributeError:
-            self._log("Initializing parts for message {0}".format(self.name), 5)
+            self.log("Initializing parts for message {0}".format(self.name), 5)
             parts = list()
             for part in self.bsElement('part', recursive=False):
                 parts.append(Part(part, self.parent))
@@ -177,6 +177,6 @@ class Operation(Element):
                 self.__fault = Message.fromName(name, self.parent)
                 return self.__fault
             else:
-                self._log("Operation has no fault message specified", 2)
+                self.log("Operation has no fault message specified", 2)
                 self.__fault = None
                 return self.__fault

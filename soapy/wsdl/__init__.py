@@ -1,11 +1,14 @@
-from soapy import Log
-from soapy.wsdl.types import *
-from soapy.wsdl.model import *
-from soapy.wsdl.element import Element,Schema,Namespace
-import time
 import os
+import time
+
+import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+
+from soapy import Log
+from soapy.wsdl.element import Element,Schema,Namespace
+from soapy.wsdl.model import *
+from soapy.wsdl.types import *
 
 
 class Wsdl(Log):
@@ -29,7 +32,7 @@ class Wsdl(Log):
                     for line in in_file:
                         out_file.write(line)
         else:
-            self._log("Unsupported protocol for WSDL location: {0}".format(wsdl_location), 0)
+            self.log("Unsupported protocol for WSDL location: {0}".format(wsdl_location), 0)
             raise ValueError("Unsupported protocol for WSDL location: {0}".format(wsdl_location))
 
         # TODO handle URLs with http/https
@@ -39,7 +42,7 @@ class Wsdl(Log):
         try:
             return self.__wsdl
         except AttributeError:
-            self._log('Getting root definitions of WSDL', 5)
+            self.log('Getting root definitions of WSDL', 5)
             self.__wsdl = self.soup("definitions", recursive=False)[0]
             return self.__wsdl
 
@@ -48,26 +51,26 @@ class Wsdl(Log):
         try:
             return self.__soup
         except AttributeError:
-            self._log("Parsing WSDL file and rendering Element Tree", 5)
+            self.log("Parsing WSDL file and rendering Element Tree", 5)
             with open(self.wsdlFile) as f:
                 self.__soup = BeautifulSoup(f, "xml")
             os.remove(self.wsdlFile)
             return self.__soup
 
     @property
-    def wsdlFile(self):
+    def wsdlFile(self) -> str:
 
         """ Create a temporary file, handling overlap in the off chance it already exists """
 
         try:
             return self.__wsdlFile
         except AttributeError:
-            self._log("Initializing wsdl file cache", 5)
+            self.log("Initializing wsdl file cache", 5)
             f = str(os.getpid()) + ".temp"
 
             if os.path.exists(f):
                 f = str(time.time()) + f
-            self._log("Set wsdlFile for instance to cache: {0}".format(f), 4)
+            self.log("Set wsdlFile for instance to cache: {0}".format(f), 4)
             self.__wsdlFile = f
             return self.__wsdlFile
 
@@ -79,7 +82,7 @@ class Wsdl(Log):
         try:
             return self.__services
         except AttributeError:
-            self._log("Initializing list of services with services defined in WSDL", 5)
+            self.log("Initializing list of services with services defined in WSDL", 5)
             services = list()
             for service in self.wsdl('service', recursive=False):
                 services.append(Service(service, self))
@@ -95,6 +98,15 @@ class Wsdl(Log):
             schemas = list()
             for schema in types('schema', recursive=False):
                 schemas.append(Schema(schema, self))
+                imports = schema("import",recursive=False)
+                for each in imports:
+                    try:
+                        schemaSoup = self._downloadSchema(each["schemaLocation"])
+                        for addSchema in schemaSoup("schema",recursive=False):
+                            schemas.append(Schema(addSchema,self))
+                    except:
+                        """ Assume (for now) that it's a local schema """
+                        #TODO update this logic to be more robust
             self.__schemas = tuple(schemas)
             return self.__schemas
 
@@ -103,14 +115,21 @@ class Wsdl(Log):
         try:
             return self.__namespace
         except AttributeError:
-            self.__namespace = Namespace(self.wsdl, self._log)
+            self.__namespace = Namespace(self.wsdl, self.log)
             return self.__namespace
 
     @staticmethod
-    def __downloadWsdl(url):
+    def _downloadWsdl(url):
 
         """ Downloads a WSDL from a remote location, attempting to account for proxy,
-		then saves it to the proper filename for reading """
+        then saves it to the proper filename for reading """
+
+    def _downloadSchema(self,url) -> Tag:
+        
+        self.log("Importing schema from url: {0}".format(url),5)
+        response = requests.get(url)
+        schema = BeautifulSoup(response.text,"xml")
+        return schema
 
     def __str__(self):
         return self.wsdl.prettify()
@@ -131,6 +150,8 @@ class Wsdl(Log):
             return ComplexContent(element,self,schema)
         elif element.name == "extension":
             return Extension(element,self,schema)
+        elif element.name =="simpleContent":
+            return SimpleContent(element,self,schema)
         else:
             raise TypeError("XML Element Type <{0}> not yet implemented".format(element.name))
 
@@ -145,13 +166,13 @@ class Wsdl(Log):
             targetNs = self.namespace.resolveNamespace(ns)
         except ValueError:
             ns = "None"
-        self._log("Type resides in namespace of {0}".format(targetNs),5)
-        self._log("Searching all types for matching element with name {0}".format(name), 5)
+        self.log("Type resides in namespace of {0}".format(targetNs),5)
+        self.log("Searching all types for matching element with name {0}".format(name), 5)
         for schema in self.schemas:
             if schema.name == targetNs:
-                self._log("Found schema matching namespace of {0}:{1}".format(ns,schema.name),5)
+                self.log("Found schema matching namespace of {0}:{1}".format(ns,schema.name),5)
                 tags = schema.bsElement("", {"name": name})
                 if len(tags) > 0:
                     return self.typeFactory(tags[0], schema)
-        self._log("Unable to find Type based on name {0}".format(name), 1)
+        self.log("Unable to find Type based on name {0}".format(name), 2)
         return None

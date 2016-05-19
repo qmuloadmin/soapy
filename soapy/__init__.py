@@ -1,10 +1,6 @@
 #!/usr/bin/python3
 
 import time
-import os
-from bs4 import BeautifulSoup
-from bs4.element import Tag
-import requests
 
 
 class Log:
@@ -15,9 +11,9 @@ class Log:
         """ Provide tracelevel of -1 to not log anything """
 
         self.tl = tl
-        self._log("Set instance tracelevel to {0}".format(tl), 5)
+        self.log("Set instance tracelevel to {0}".format(tl), 5)
 
-    def _log(self, message, tl):
+    def log(self, message, tl):
 
         prefix = str()
 

@@ -1,7 +1,8 @@
 from soapy import Log
+from soapy.wsdl import Wsdl
 from soapy.wsdl.model import *
 from soapy.wsdl.types import TypeElement
-from soapy.wsdl import Wsdl
+
 
 class Client(Log):
     
@@ -9,7 +10,7 @@ class Client(Log):
     values for a given operation, and sending request. Works with Marshaller to 
     generate SOAP envelope for request """
 
-    def __init__(self, wsdl_location, tl = 0, operation=None, service=None, **kwargs):
+    def __init__(self, wsdl_location, tl=0, operation=None, service=None, **kwargs):
         
         """ Provide a wsdl file location url, e.g. http://my.domain.com/some/service?wsdl or
         file:///full/path/to.wsdl, a tracelevel for logging (0-5), and optionally pass in
@@ -26,19 +27,21 @@ class Client(Log):
         super().__init__(tl)
 
         # Initialize instance of Wsdl using provided information
-        self._log("Initializing new wsdl object using url: {0}".format(
-                                                      wsdl_location),5)
+        self.log("Initializing new wsdl object using url: {0}".format(
+                                                      wsdl_location), 4)
         self.__wsdl = Wsdl(wsdl_location, tl)
 
-        #If either operation or service is set, initialize them to starting values
+        # If either operation or service is set, initialize them to starting values
 
         if service is not None:
-            self._log("Initializing service with name {0}".format(service),5)
+            self.log("Initializing service with name {0}".format(service), 5)
             self.service = service
 
         if operation is not None:
-            self._log("Initializing operation with name {0}".format(operation),5)
+            self.log("Initializing operation with name {0}".format(operation), 5)
             self.operation = operation
+
+        self.log("Client successfully initialized", 3)
 
     @property
     def service(self) -> Service:
@@ -48,16 +51,16 @@ class Client(Log):
             return None
     
     @service.setter
-    def service(self,service):
+    def service(self, service):
         found = False
-        self._log("Searching for service with name {0}".format(service),5)
+        self.log("Searching for service with name {0}".format(service), 5)
         for each in self.wsdl.services:
             if each.name == service:
                 self.__service = each
                 found = True
         if not found:
-            self._log("Search for service matching name {0} failed; WDSL does not contain this service"
-                        .format(service),1)
+            self.log("Search for service matching name {0} failed; WDSL does not contain this service"
+                      .format(service), 1)
             raise ValueError("WSDL contains no service named {0}".format(service))
 
     @property
@@ -72,7 +75,7 @@ class Client(Log):
             return None
 
     @operation.setter
-    def operation(self,operationName):
+    def operation(self, operationName):
         def ops(service):
             for port in service.ports:
                 for operation in port.binding.type.operations:
@@ -91,9 +94,18 @@ class Client(Log):
                     found = True
                     self.__operation = operation
         if not found:
-            self._log("Search for operation matching name {0} failed; No such operation"
-                    .format(operationName),1)
+            self.log("Search for operation matching name {0} failed; No such operation"
+                     .format(operationName), 1)
             raise ValueError("No such operation: {0}".format(operationName))
+        else:
+            self.log("Set client operation to {0}".format(self.operation), 3)
+
+    @property
+    def schema(self):
+        try:
+            return self.__schema
+        except:
+            raise RuntimeError("Must set operation before schema can be determined")
 
     @property
     def inputs(self):
@@ -102,6 +114,7 @@ class Client(Log):
         except AttributeError:
             try:
                 inputs = list()
+                self.log("Building list of inputs for operation {0}".format(self.operation), 4)
                 for each in self.operation.input.parts:
                     inputs.append(InputOptions(each.type))
                 self.__inputs = tuple(inputs)
@@ -112,13 +125,14 @@ class Client(Log):
     def _buildEnvelope(self):
         pass
 
+
 class InputBase:
 
     """ Defines and enables key/index duality where a keyword can be used to find or set a value, as
     can an index number. This is because some inputs could have the same name in rare cases """
 
-    def __setitem__(self,key,value):
-        if isinstance(key,int):
+    def __setitem__(self, key, value):
+        if isinstance(key, int):
             self.items[key].value = value
         else:
             found = False
@@ -129,12 +143,12 @@ class InputBase:
             if not found:
                 raise KeyError
 
-    def __getitem__(self,key):
-        if isinstance(key,int):
+    def __getitem__(self, key):
+        if isinstance(key, int):
             return self.items[key]
         for each in self.items:
             if each.name == key:
-                return each.value
+                return each
         raise KeyError
         
 
@@ -142,7 +156,7 @@ class InputOptions(InputBase):
     
     """ Describes possible inputs to the web service in a pythonic fashion """
 
-    def __init__(self,element):
+    def __init__(self, element):
         
         """ Walks the object tree to find all elements and creates  """
 
@@ -153,9 +167,9 @@ class InputOptions(InputBase):
             name = element.name
             attributes = element.attributes
             setable = False
-            if len(element.children) == 0:
+            if len(element.elementChildren) == 0:
                 setable = True
-            inputs.append(InputElement(name,attributes,setable,element))
+            inputs.append(InputElement(name, attributes, setable, element))
         self.__elements = tuple(inputs)
 
     @property
@@ -177,8 +191,8 @@ class InputOptions(InputBase):
     def __str__(self):
         s = ""
         i = 0
-        for each in self.elements:
-            s += "[{0}]: {1}".format(i,each)
+        for each in self.__elements:
+            s += "[{0}]: {1}".format(i, each)
             i += 1
         s += '}'
         return s
@@ -188,13 +202,13 @@ class InputElement(InputBase):
     """ An individual element of input, has a name, value and attributes. A further 
     abstraction of the TypeElement object in soapy.wsdl.types """
 
-    def __init__(self,name,attributes,setable,ref):
+    def __init__(self, name, attributes, setable, ref):
         self.__name = name
         self.__setable = setable
         self.__ref = ref
         attrs = list()
         for attr in attributes:
-            attrs.append(InputAttribute(attr.name,attr.default))
+            attrs.append(InputAttribute(attr.name, attr.default))
         self.__attrs = tuple(attrs)
 
 
@@ -211,6 +225,9 @@ class InputElement(InputBase):
             s += "    {0}\n".format(each)
         return s
 
+    def keys(self):
+        return tuple([attr.name for attr in self.attributes])
+    
     @property
     def value(self) -> str:
         try:
@@ -219,7 +236,7 @@ class InputElement(InputBase):
             return None
 
     @value.setter
-    def value(self,value):
+    def value(self, value):
         if self.__setable:
             self.__value = value
         else:
@@ -233,7 +250,7 @@ class InputElement(InputBase):
             return None
     
     @innerXml.setter
-    def innerXml(self,xml: str):
+    def innerXml(self, xml: str):
 
         """ Setting innerXml will override the marshaller's behavior with rendering the XML
         from the WSDL and input objects and simply include what you specify, replacing all
@@ -247,7 +264,7 @@ class InputElement(InputBase):
 
     @property
     def attributes(self):
-        ## Not memo-ized because contents of tuple are mutable
+        # Not memo-ized because contents of tuple are mutable
         return self.__attrs
 
     @property
@@ -262,12 +279,13 @@ class InputElement(InputBase):
     def ref(self):
         return self.__ref
 
+
 class InputAttribute():
     
     """ An individual attribute of an input Element. A further abstraction of the
     Attribute object in soapy.wsdl.types """
 
-    def __init__(self,name,value):
+    def __init__(self, name, value):
         self.__name = name
         self.value = value
 
