@@ -35,18 +35,33 @@ class Envelope(Marshaller):
         self.usedNs = dict()
         self.usedNs["tns"] = self.schema.name
         self.__targetNs = "tns"
+        self.__tnsMap = {}
+        self.__nsCounter = 1
         self.__xml = """<{0}:Envelope """.format(self.soapNs)
         self.__inputs = client.inputs
         self.__body = Body(self)
         self.__header = Header(self)
 
-    def registerNamespace(self, name):
-        try:
-            self.usedNs[name] = self.schema.namespace.resolveNamespace(name)
-            self.log("Registered new namespace of {0} from Schema".format(name), 5)
-        except KeyError:
-            self.usedNs[name] = self.schema.parent.namespace.resolveNamespace(name)
-            self.log("Registered new namespace of {0} from Wsdl Definition".format(name), 5)
+    def registerNamespace(self, definition, object):
+
+        """  When an element is not in the same schema (and thus NS) as the Body/Envelope,
+        we need to define and declare it, as well as be able to tell the element what its
+        namespace is. This function adds a new namespace when provided a location definition
+        after ensuring the same namespace hasn't already been added
+        :param definition: The url of the schema, e.g. http://test/commonTypes/schema
+        :param object: The object reference to be used in tnsMap so the object can tell which ns to use
+        :return: None
+        """
+
+        for name, value in self.usedNs.items():
+            if value == definition:
+                self.__tnsMap[object] = name
+                return
+        name = self.targetNs + str(self.__nsCounter)
+        self.usedNs[name] = definition
+        self.__tnsMap[object] = name
+        self.log("Registered new namespace of {0}".format(name), 5)
+        self.__nsCounter += 1
 
     def render(self):
         self.header.render()
@@ -71,6 +86,10 @@ class Envelope(Marshaller):
     @property
     def inputs(self):
         return self.__inputs
+
+    @property
+    def tnsMap(self):
+        return self.__tnsMap
 
     @property
     def xml(self):
@@ -184,8 +203,21 @@ class Element(Marshaller):
         self.log("Initializing new Element based on {0}".format(element.name), 5)
         self.__part = part
         self.__definition = element
-        if self.parent.schema.elementForm == "qualified" or self.__top_level:
-            self.__xml = "<{0}:{1} ".format(self.parent.targetNs, self.definition.name.strip())
+
+        # Check to see if the schema of the element is the same as the body/envelope default tns.
+        # If not, then we need to update the Envelope with a new xmlns definition and use a different
+        # ns in our tags
+
+        if self.definition.schema.name is not self.parent.schema.name:
+            self.parent.registerNamespace(self.definition.schema.name,
+                                          self)
+            self.tns = self.parent.tnsMap[self]
+        else:
+            self.tns = self.parent.targetNs
+
+        # If elementForm for the schema is qualified, we need to print ns, otherwise, only if it's the first element
+        if self.definition.schema.elementForm == "qualified" or self.__top_level:
+            self.__xml = "<{0}:{1} ".format(self.tns, self.definition.name.strip())
         else:
             self.__xml = "<{0} ".format(self.definition.name.strip())
         self.__children = tuple([Element(envelope, child, self.part, False)
@@ -223,7 +255,6 @@ class Element(Marshaller):
             if obj.ref is self.definition:
                 inputObj = obj
                 break
-
         # Bail out early if empty and optional
 
         if inputObj.setable and inputObj.innerXml is None:
@@ -253,13 +284,14 @@ class Element(Marshaller):
         if inputObj.innerXml is not None:
             self.__xml += inputObj.innerXml
         elif inputObj.setable:
-            self.__xml += inputObj.value
+            if inputObj.value is not None:
+                self.__xml += inputObj.value
         else:
             self.__xml += "\n"
             for each in self.children:
                 self.__xml += each.xml
 
         if self.parent.schema.elementForm == "qualified" or self.__top_level:
-            self.__xml += "</{0}:{1}>\n".format(self.parent.targetNs, self.definition.name.strip())
+            self.__xml += "</{0}:{1}>\n".format(self.tns, self.definition.name.strip())
         else:
             self.__xml += "</{0}>\n".format(self.definition.name.strip())

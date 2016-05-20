@@ -1,11 +1,12 @@
 import requests
+from bs4 import BeautifulSoup
 from requests.auth import HTTPBasicAuth
+from requests.exceptions import ConnectionError
 
 import soapy.marshal
 from soapy import Log
 from soapy.wsdl import Wsdl
 from soapy.wsdl.model import *
-from soapy.wsdl.types import TypeElement
 
 
 class Client(Log):
@@ -214,18 +215,31 @@ class Client(Log):
         self.log("Set custom headers to {0}".format(headers), 5)
         proxies = self._buildProxyDict()
         self.log("Calling web service at {0}".format(self.location), 3)
-        if self.username is None:
-            self.response = requests.post(self.location,
-                                          proxies=proxies,
-                                          data=self.requestEnvelope.xml,
-                                          headers=headers)
+        try:
+            if self.username is None:
+                self.response = requests.post(self.location,
+                                              proxies=proxies,
+                                              data=self.requestEnvelope.xml,
+                                              headers=headers)
+            else:
+                self.response = requests.post(self.location,
+                                              auth=HTTPBasicAuth(self.username, self.password),
+                                              proxies=proxies,
+                                              data=self.requestEnvelope.xml,
+                                              headers=headers)
+        except ConnectionError as e:
+            self.log("Web service connection failed. Check location and try again", 0)
+            raise ConnectionError(str(e))
+
+        self.log("Web service call complete, status code is {0}".format(self.response.status_code), 3)
+        if "xml" in self.response.headers["Content-Type"]:
+            self.log("Rendering response XML", 5)
+            self.responseXml = BeautifulSoup(self.response.text, "xml")
         else:
-            self.response = requests.post(self.location,
-                                          auth=HTTPBasicAuth(self.username,self.password),
-                                          proxies=proxies,
-                                          data=self.requestEnvelope.xml,
-                                          headers=headers)
-        self.log("Web service call complete, status code is {0}".format(self.response.status_code),3)
+            self.log("Response is not XML, or has incorrect Content-Type headers", 1)
+            self.responseXml = None
+
+        return self.responseXml
 
 
 class InputBase:
@@ -252,6 +266,9 @@ class InputBase:
             if each.name == key:
                 return each
         raise KeyError
+
+    def __repr__(self):
+        return self.value
         
 
 class InputOptions(InputBase):
@@ -266,12 +283,13 @@ class InputOptions(InputBase):
         inputs = list()
         InputOptions._recursiveExtractElements(elements, element)
         for element in elements:
-            name = element.name
-            attributes = element.attributes
+            name = element[0].name
+            parent = element[1]
+            attributes = element[0].attributes
             setable = False
-            if len(element.elementChildren) == 0:
+            if len(element[0].elementChildren) == 0:
                 setable = True
-            inputs.append(InputElement(name, attributes, setable, element))
+            inputs.append(InputElement(name, parent, attributes, setable, element[0]))
         self.__elements = tuple(inputs)
 
     @property
@@ -279,16 +297,19 @@ class InputOptions(InputBase):
         return self.__elements
 
     @staticmethod
-    def _recursiveExtractElements(l: list, element):
+    def _recursiveExtractElements(l: list, element, parent=None):
         
         """ Recursively iterates over soapy.wsdl.types Objects and extracts the 
         TypeElement objects, as they are what actually represent input options """
 
-        if element is None: return
-        if isinstance(element, TypeElement):
-            l.append(element)
-        for child in element.children:
-            InputOptions._recursiveExtractElements(l, child)
+        if element is None:
+            return
+
+        l.append((element, parent))
+        for child in element.elementChildren:
+            if child.bsElement is element.bsElement:
+                continue
+            InputOptions._recursiveExtractElements(l, child, element)
 
     def __str__(self):
         s = ""
@@ -305,8 +326,12 @@ class InputElement(InputBase):
     """ An individual element of input, has a name, value and attributes. A further 
     abstraction of the TypeElement object in soapy.wsdl.types """
 
-    def __init__(self, name, attributes, setable, ref):
-        self.__name = name
+    def __init__(self, name, parent, attributes, setable, ref):
+        self.__parent = parent
+        if self.parent is not None:
+            self.__name = self.parent.name + "." + name
+        else:
+            self.__name = name
         self.__setable = setable
         self.__ref = ref
         attrs = list()
@@ -314,6 +339,9 @@ class InputElement(InputBase):
             attrs.append(InputAttribute(attr.name, attr.default))
         self.__attrs = tuple(attrs)
 
+    @property
+    def parent(self):
+        return self.__parent
 
     def __str__(self):
         s = "'{0}'".format(self.name)
@@ -398,4 +426,3 @@ class InputAttribute:
 
     def __str__(self):
         return "['"+self.name+"'] = " + str(self.value)
-

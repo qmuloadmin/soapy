@@ -46,7 +46,7 @@ class Element():
 
     """ Base class for handling instantiation and name attribute for any WSDL element """
 
-    def __init__(self, bsElement, parent, schema=None):
+    def __init__(self, bsElement, parent, schema=None, isLocal=True):
 
         """ Constructor: provide the BeautifulSoup tag object instance for the element and
         the soapy.Wsdl parent instance """
@@ -54,6 +54,7 @@ class Element():
         self.__bsElement = bsElement
         self.__parent = parent
         self.__schema = schema
+        self.__isLocal = isLocal
         self.log("Initialized {0} with name of {1}".format(
             self.__bsElement.name, self.name), 4)
 
@@ -74,6 +75,10 @@ class Element():
     @property
     def schema(self):
         return self.__schema
+
+    @property
+    def isLocal(self):
+        return self.__isLocal
 
     @property
     def name(self) -> str:
@@ -131,37 +136,52 @@ class Element():
             for key, value in parentUpdates:
                 self.bsElement[key] = value
 
+    def _processElementChildren(self, parent) -> list:
+
+        # First, process any child updates specified by TypeContainer Children
+
+        childUpdates = dict()
+        try:
+            cUpdate = self.updateChildElements()
+            if cUpdate is not None:
+                self.log("Found update item(s) for Children: {0}".format(cUpdate), 4)
+                childUpdates.update(cUpdate)
+        except AttributeError:
+            """ Do nothing, we are in a TypeElement object """
+
+        # Next, Extend the list of children with each child's element children
+
+        children = list()
+        for each in self.children:
+            if isinstance(each, soapy.wsdl.types.TypeElement):
+                # Below, a failed attempt to avoid infinite recursion in recursive schemas. TODO Fix it
+                if each.bsElement is not parent.bsElement:
+                    children.append(each)
+            elif each is None:
+                continue
+            else:
+                children.extend(each._processElementChildren(parent))
+
+        # Lastly, apply all child updates to each child element
+
+        if len(childUpdates) > 0:
+            self.log("Processing all parent-induced updates for all children", 5)
+            for child in children:
+                for attr, value in childUpdates.items():
+                    child.bsElement[attr] = value
+        self.__elementChildren = tuple(children)
+        return self.__elementChildren
+
+        self.log("All TypeElement children identified", 5)
+        return children
+
     @property
-    def elementChildren(self, childUpdates=dict()) -> tuple:
+    def elementChildren(self) -> tuple:
         try:
             return self.__elementChildren
         except AttributeError:
             self.log("In recursive process of isolating and updating TypeElement children", 5)
-            children = list()
-            try:
-                cUpdate = self.updateChildElements()
-                if cUpdate is not None:
-                    self.log("Found update item(s) for Children: {0}".format(cUpdate), 4)
-                    childUpdates.update(cUpdate)
-            except AttributeError: 
-                
-                """ Do nothing, we are in a TypeElement object """
-
-            for each in self.children:
-                if isinstance(each, soapy.wsdl.types.TypeElement):
-                    children.append(each)
-                elif each is None:
-                    continue
-                else:
-                    children.extend(each.elementChildren)
-            self.log("All TypeElement children identified", 5)
-            if len(childUpdates) > 0:
-                self.log("Processing all parent-induced updates for all children", 5)
-                for child in children:
-                    for attr, value in childUpdates.items():
-                        child.bsElement[attr] = value
-            self.__elementChildren = tuple(children)
-            return self.__elementChildren
+            return self._processElementChildren(self)
 
     @property
     def namespace(self) -> Namespace:

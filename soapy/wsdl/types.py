@@ -19,7 +19,7 @@ class TypeContainer(Element):
         except AttributeError:
             attrs = list()
             self.log("In recursive process of consolidating attributes. Current object is '{0}' the {1}"
-                      .format(self.name, self.tag), 5)
+                     .format(self.name, self.tag), 5)
             attributes = self.bsElement('attribute', recursive=False)
             for attribute in attributes:
                 attr = Attribute(attribute, self.parent)
@@ -127,6 +127,10 @@ class Attribute(Element):
 
 class ComplexType(TypeContainer):
     """ Class representing a dynamic container of simpler types """
+
+
+class SimpleType(TypeContainer):
+    """ Class representing type value enforcement """
 
 
 class ComplexContent(TypeContainer):
