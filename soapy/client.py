@@ -242,36 +242,7 @@ class Client(Log):
         return self.responseXml
 
 
-class InputBase:
-
-    """ Defines and enables key/index duality where a keyword can be used to find or set a value, as
-    can an index number. This is because some inputs could have the same name in rare cases """
-
-    def __setitem__(self, key, value):
-        if isinstance(key, int):
-            self.items[key].value = value
-        else:
-            found = False
-            for each in self.items:
-                if each.name == key:
-                    each.value = value
-                    found = True
-            if not found:
-                raise KeyError
-
-    def __getitem__(self, key):
-        if isinstance(key, int):
-            return self.items[key]
-        for each in self.items:
-            if each.name == key:
-                return each
-        raise KeyError
-
-    def __repr__(self):
-        return self.value
-        
-
-class InputOptions(InputBase):
+class InputOptions:
     
     """ Describes possible inputs to the web service in a pythonic fashion """
 
@@ -292,6 +263,26 @@ class InputOptions(InputBase):
             inputs.append(InputElement(name, parent, attributes, setable, element[0]))
         self.__elements = tuple(inputs)
 
+    def __getattr__(self, item):
+        return self.__getitem__(item)
+
+    def __str__(self):
+        s = ""
+        i = 0
+        for each in self.__elements:
+            s += "[{0}]: {1}".format(i, each)
+            i += 1
+        s += '}'
+        return s
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self.items[key]
+        for each in self.items:
+            if each.name == key:
+                return each
+        raise KeyError
+
     @property
     def items(self):
         return self.__elements
@@ -311,17 +302,8 @@ class InputOptions(InputBase):
                 continue
             InputOptions._recursiveExtractElements(l, child, element)
 
-    def __str__(self):
-        s = ""
-        i = 0
-        for each in self.__elements:
-            s += "[{0}]: {1}".format(i, each)
-            i += 1
-        s += '}'
-        return s
 
-
-class InputElement(InputBase):
+class InputElement:
 
     """ An individual element of input, has a name, value and attributes. A further 
     abstraction of the TypeElement object in soapy.wsdl.types """
@@ -329,7 +311,7 @@ class InputElement(InputBase):
     def __init__(self, name, parent, attributes, setable, ref):
         self.__parent = parent
         if self.parent is not None:
-            self.__name = self.parent.name + "." + name
+            self.__name = self.parent.name + "_" + name
         else:
             self.__name = name
         self.__setable = setable
@@ -409,6 +391,26 @@ class InputElement(InputBase):
     @property
     def ref(self):
         return self.__ref
+
+    def __setitem__(self, key, value):
+        if isinstance(key, int):
+            self.items[key].value = value
+        else:
+            found = False
+            for each in self.items:
+                if each.name == key:
+                    each.value = value
+                    found = True
+            if not found:
+                raise KeyError
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self.items[key]
+        for each in self.items:
+            if each.name == key:
+                return each
+        raise KeyError
 
 
 class InputAttribute:
