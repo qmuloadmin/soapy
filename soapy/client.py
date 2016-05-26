@@ -48,12 +48,26 @@ class Client(Log):
         self.proxy = ""
         self.proxyUser = ""
         self.proxyPass = ""
-        self.__requestEnvelope = None
+
+        # Update values with kwargs if provided
+
+        keys = kwargs.keys()
+        if "location" in keys:
+            self.location = kwargs["location"]
+        if "username" in keys:
+            self.username = kwargs["username"]
+            self.password = kwargs["password"]
+        if "proxyUrl" in keys:
+            self.proxyUrl = kwargs["proxyUrl"]
+        if "proxyUser" in keys:
+            self.proxyUser = kwargs["proxyUser"]
+        if "proxyPass" in keys:
+            self.proxyPass = kwargs["proxyPass"]
 
         # Initialize instance of Wsdl using provided information
         self.log("Initializing new wsdl object using url: {0}".format(
                                                       wsdl_location), 4)
-        self.__wsdl = Wsdl(wsdl_location, tl)
+        self.__wsdl = Wsdl(wsdl_location, tl, **kwargs)
 
         # If either operation or service is set, initialize them to starting values
 
@@ -165,7 +179,11 @@ class Client(Log):
 
     @property
     def requestEnvelope(self):
-        return self.__requestEnvelope
+        try:
+            return self.__requestEnvelope
+        except AttributeError:
+            self._buildEnvelope()
+            return self.__requestEnvelope
 
     def _buildEnvelope(self):
         self.log("Initializing marshaller for envelope", 5)

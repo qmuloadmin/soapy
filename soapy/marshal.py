@@ -113,6 +113,11 @@ class Envelope(Marshaller):
         return "soapenv"
 
     @property
+    def XmlNs(self):
+        self.usedNs["xsi"] = "http://www.w3.org/2001/XMLSchema-instance"
+        return "xsi"
+
+    @property
     def targetNs(self):
         return self.__targetNs
 
@@ -203,6 +208,7 @@ class Element(Marshaller):
         self.log("Initializing new Element based on {0}".format(element.name), 5)
         self.__part = part
         self.__definition = element
+        self.childrenHaveValues = False
 
         # Check to see if the schema of the element is the same as the body/envelope default tns.
         # If not, then we need to update the Envelope with a new xmlns definition and use a different
@@ -223,6 +229,14 @@ class Element(Marshaller):
         self.__children = tuple([Element(envelope, child, self.part, False)
                                 for child in self.definition.elementChildren])
 
+        # Associate input obj from client with this Element rendering
+
+        self.__inputObj = None
+        for obj in self.parent.inputs[self.part]:
+            if obj.ref is self.definition:
+                self.__inputObj = obj
+                break
+
     @property
     def part(self) -> int:
         return self.__part
@@ -230,6 +244,10 @@ class Element(Marshaller):
     @property
     def definition(self):
         return self.__definition
+
+    @property
+    def inputObj(self):
+        return self.__inputObj
 
     @property
     def parent(self) -> Envelope:
@@ -246,22 +264,40 @@ class Element(Marshaller):
     def log(self, message, tl):
         self.parent.log(message, tl)
 
-    def render(self):
+    def childrenSignificant(self) -> bool:
 
-        # Pair the WSDL definitions element with the input from client
+        """
+        Recursively inspects self and children to determine if children need rendered.
+        Requirements for needing rendered are determined based on whether a value is assigned
+        :return: bool
+        """
 
-        inputObj = None
-        for obj in self.parent.inputs[self.part]:
-            if obj.ref is self.definition:
-                inputObj = obj
-                break
-        # Bail out early if empty and optional
+        if self.inputObj.value is not None:
+            return True
+        for each in self.children:
+            if each.childrenSignificant() is True:
+                self.childrenHaveValues = True
+        return self.childrenHaveValues
 
-        if inputObj.setable and inputObj.innerXml is None:
-            if inputObj.value is None:
-                if self.definition.minOccurs == "0":
-                    self.__xml = ""
-                    return
+    def _processNullValues(self) -> bool:
+        if self.inputObj.value is None:
+            if self.definition.minOccurs == "0":
+               self.__xml = ""
+            elif self.definition.nillable == "true":
+                self.__xml += '{0}:nil="true" />\n'.format(self.parent.XmlNs)
+            else:
+                self.__xml += '/>\n'
+            return True
+        return False
+
+    def render(self) -> None:
+
+        # Bail out early if empty and optional or nillable
+
+        if self.inputObj.setable and self.inputObj.innerXml is None:
+            if self._processNullValues():
+                self.log("Processed null value for element {0}".format(self.definition.name), 5)
+                return
 
         # Call update to perform parent update consolidation from non-Element children
 
@@ -269,23 +305,35 @@ class Element(Marshaller):
 
         # Render each child element to make sure parent/child updates are propagated
         # before we actually render the static XML
+        # Then, check to see if all children are empty.
 
         for each in self.children:
             each.render()
+            if each.childrenSignificant() is True:
+                self.childrenHaveValues = True
+
+        # If all children are empty and aren't required, process null values to render element correctly
+
+        if not self.childrenHaveValues and int(self.definition.minOccurs) == 0:
+            if self._processNullValues():
+                self.log("Processed null value for element {0}".format(self.definition.name), 5)
+                return
 
         for attr in self.definition.attributes:
-            if inputObj[attr.name].value is not None:
-                self.__xml += """{0}="{1}" """.format(attr.name, inputObj[attr.name].value)
+            if self.inputObj[attr.name].value is not None:
+                self.__xml += """{0}="{1}" """.format(attr.name, self.inputObj[attr.name].value)
 
         self.__xml += ">"
 
         # Update inner xml, either using child xml values, or innerXml from inputObj
 
-        if inputObj.innerXml is not None:
-            self.__xml += inputObj.innerXml
-        elif inputObj.setable:
-            if inputObj.value is not None:
-                self.__xml += inputObj.value
+        if self.inputObj.innerXml is not None:
+            self.__xml += self.inputObj.innerXml
+        elif self.inputObj.setable:
+            if self.inputObj.value is not None:
+                self.log("Setting value of element {0} to '{1}'"
+                         .format(self.definition.name, self.inputObj.value), 5)
+                self.__xml += self.inputObj.value
         else:
             self.__xml += "\n"
             for each in self.children:

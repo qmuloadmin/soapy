@@ -134,7 +134,7 @@ class Schema(Element):
 
         """ The name of a Schema is its targetNamespace, which is the closest thing to a QName a schema has """
 
-        return self.bsElement['targetNamespace']
+        return self.bsElement.get('targetNamespace', None)
 
     @property
     def elementForm(self) -> str:

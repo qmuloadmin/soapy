@@ -15,13 +15,25 @@ class Wsdl(Log):
     """ Class reads in WSDL and forms various child objects held together by this parent class
     Which essentially converts wsdl objects inside 'definitions' into Python native objects """
 
-    def __init__(self, wsdl_location, tracelevel=1, **kArgs):
+    def __init__(self, wsdl_location, tracelevel=1, **kwargs):
 
         """ wsdl_location is FQDN and URL of WSDL, must include protocol, e.g. http/file
         If caching behavior is desired (to load native python objects instead of parsing
         the XML each time, then provide keyword args of cache=FH where FH is a file handle """
 
         super().__init__(tracelevel)
+
+        keys = kwargs.keys()
+
+        if "username" in keys:
+            self.username = kwargs["username"]
+            self.password = kwargs["password"]
+        if "proxyUrl" in keys:
+            self.proxyUrl = kwargs["proxyUrl"]
+        if "proxyUser" in keys:
+            self.proxyUser = kwargs["proxyUser"]
+        if "proxyPass" in keys:
+            self.proxyPass = kwargs["proxyPass"]
 
         # Determine how to load the WSDL, is it a web resource, or a local file?
 
@@ -31,6 +43,10 @@ class Wsdl(Log):
                 with open(self.wsdlFile, "w") as out_file:
                     for line in in_file:
                         out_file.write(line)
+        elif wsdl_location.startswith("http://"):
+            self._downloadWsdl(wsdl_location)
+        elif wsdl_location.startswith("https://"):
+            self._downloadWsdl(wsdl_location)
         else:
             self.log("Unsupported protocol for WSDL location: {0}".format(wsdl_location), 0)
             raise ValueError("Unsupported protocol for WSDL location: {0}".format(wsdl_location))
@@ -118,11 +134,14 @@ class Wsdl(Log):
             self.__namespace = Namespace(self.wsdl, self.log)
             return self.__namespace
 
-    @staticmethod
-    def _downloadWsdl(url):
+    def _downloadWsdl(self, url):
 
         """ Downloads a WSDL from a remote location, attempting to account for proxy,
         then saves it to the proper filename for reading """
+
+        wsdlText = requests.get(url).text
+        with open(self.wsdlFile, "w") as f:
+            f.write(wsdlText)
 
     def _downloadSchema(self, url) -> Tag:
 
