@@ -98,7 +98,7 @@ class Wsdl(Log):
             schemas = list()
             for schema in types('schema', recursive=False):
                 schemas.append(Schema(schema, self))
-                imports = schema("import",recursive=False)
+                imports = schema("import", recursive=False)
                 for each in imports:
                     try:
                         schemaSoup = self._downloadSchema(each["schemaLocation"])
@@ -125,7 +125,7 @@ class Wsdl(Log):
         then saves it to the proper filename for reading """
 
     def _downloadSchema(self, url) -> Tag:
-        
+
         self.log("Importing schema from url: {0}".format(url), 5)
         response = requests.get(url)
         schema = BeautifulSoup(response.text, "xml")
@@ -219,7 +219,7 @@ class Wsdl(Log):
         for schema in self.schemas:
             if schema.name == targetNs:
                 self.log("Found schema matching namespace of {0}:{1}".format(ns, schema.name), 5)
-                tags = schema.bsElement("", {"name": name},recursive=False)
+                tags = schema.bsElement("", {"name": name}, recursive=False)
                 if len(tags) > 0:
                     return self.typeFactory(tags[0], schema)
         self.log("Unable to find Type based on name {0}".format(name), 2)

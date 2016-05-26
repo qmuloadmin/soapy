@@ -1,7 +1,5 @@
 from bs4 import Tag
 
-import soapy
-
 """ Elements defined in this module are used by both WSDL elements (model) and SOAP elements (types)
  NOTE: The exception is Schema. I do not like its implementation and plan to fix it at some point. For now it's here
  for lack of a better place. """
@@ -46,17 +44,24 @@ class Element():
 
     """ Base class for handling instantiation and name attribute for any WSDL element """
 
-    def __init__(self, bsElement, parent, schema=None, isLocal=True):
+    def __init__(self, bsElement, wsdl, schema=None, isLocal=True):
 
         """ Constructor: provide the BeautifulSoup tag object instance for the element and
         the soapy.Wsdl parent instance """
 
         self.__bsElement = bsElement
-        self.__parent = parent
+        self.__parent = wsdl
         self.__schema = schema
         self.__isLocal = isLocal
         self.log("Initialized {0} with name of {1}".format(
             self.__bsElement.name, self.name), 4)
+
+        # Below is a provision utilized by TypeElements to prevent recursion on recursive XSD types
+        # As bsElements are shared across TypeElements/Elements when they refer to the same element in the WSDL
+        if self.bsElement.counter is None:
+            self.bsElement.counter = 1
+        else:
+            self.bsElement.counter += 1
 
     @classmethod
     def fromName(cls, name, parent):
@@ -103,7 +108,8 @@ class Element():
         except AttributeError:
             children = list()
             for each in self.bsElement.children:
-                if not isinstance(each, Tag): continue
+                if not isinstance(each, Tag):
+                    continue
                 children.append(self.parent.typeFactory(each, self.schema))
             self.__children = tuple(children)
             return self.__children
@@ -117,79 +123,6 @@ class Element():
     def __str__(self):
         return str(self.__bsElement)
 
-    # TODO the below methods and properties should be moved to a different super class
-    # Specifically for Type elements, that is shared between TypeElement and TypeContainer
-    # For now, they are here, but are useless and confusing (during object introspection)
-    # On Elements that are not in the soapy.wsdl.types library.
-
-    def update(self, parent, parentUpdates=dict()):
-
-        for child in self.children:
-            if child is None: continue
-            try:
-                parentUpdates.update(self.updateParentElement(parent))
-            except (TypeError, AttributeError):
-                pass
-            child.update(parent, parentUpdates)
-
-        if isinstance(self, soapy.wsdl.types.TypeElement):
-            for key, value in parentUpdates:
-                self.bsElement[key] = value
-
-    def _processElementChildren(self, parent) -> list:
-
-        # First, process any child updates specified by TypeContainer Children
-
-        childUpdates = dict()
-        try:
-            cUpdate = self.updateChildElements()
-            if cUpdate is not None:
-                self.log("Found update item(s) for Children: {0}".format(cUpdate), 4)
-                childUpdates.update(cUpdate)
-        except AttributeError:
-            """ Do nothing, we are in a TypeElement object """
-
-        # Next, Extend the list of children with each child's element children
-
-        children = list()
-        for each in self.children:
-            if isinstance(each, soapy.wsdl.types.TypeElement):
-                # Below, a failed attempt to avoid infinite recursion in recursive schemas. TODO Fix it
-                if each.bsElement is not parent.bsElement:
-                    children.append(each)
-            elif each is None:
-                continue
-            else:
-                children.extend(each._processElementChildren(parent))
-
-        # Lastly, apply all child updates to each child element
-
-        if len(childUpdates) > 0:
-            self.log("Processing all parent-induced updates for all children", 5)
-            for child in children:
-                for attr, value in childUpdates.items():
-                    child.bsElement[attr] = value
-        self.__elementChildren = tuple(children)
-        return self.__elementChildren
-
-        self.log("All TypeElement children identified", 5)
-        return children
-
-    @property
-    def elementChildren(self) -> tuple:
-        try:
-            return self.__elementChildren
-        except AttributeError:
-            self.log("In recursive process of isolating and updating TypeElement children", 5)
-            return self._processElementChildren(self)
-
-    @property
-    def namespace(self) -> Namespace:
-        try:
-            return self.__namespace
-        except AttributeError:
-            self.__namespace = Namespace(self.bsElement, self.log)
-            return self.__namespace
 
 # TODO probably need to move Schema to wsdl.__init__
 
@@ -211,3 +144,11 @@ class Schema(Element):
     @property
     def attributeForm(self) -> str:
         return self.bsElement.get("attributeFormDefault", "unqualified")
+
+    @property
+    def namespace(self) -> Namespace:
+        try:
+            return self.__namespace
+        except AttributeError:
+            self.__namespace = Namespace(self.bsElement, self.log)
+            return self.__namespace

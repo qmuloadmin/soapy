@@ -15,11 +15,21 @@ class Client(Log):
     values for a given operation, and sending request. Works with Marshaller to 
     generate SOAP envelope for request """
 
-    def __init__(self, wsdl_location, tl=0, operation=None, service=None, **kwargs):
+    def __init__(self, wsdl_location: str, tl=0, operation=None, service=None, **kwargs):
         
         """ Provide a wsdl file location url, e.g. http://my.domain.com/some/service?wsdl or
         file:///full/path/to.wsdl, a tracelevel for logging (0-5), and optionally pass in
         a Service name, and an Operation.
+
+        Tracelevels:
+
+        -1: (No logging)
+        0: (Only critical errors)
+        1: (Only errors and critical errors)
+        2: (Warnings and more severe)
+        3: (Notice)
+        4: (Informational)
+        5: (Debug information)
 
         If service is not provided, but operation is, the first operation in any service
         matching the name will be user. If service is provided, then only that service will
@@ -177,8 +187,9 @@ class Client(Log):
             import re
             self.proxy = re.sub(r"^(https?://)([^@]+)$",
                                    "\1{0}:{1}@\2"
-                                   .format(self.proxy,self.proxyPass),
+                                   .format(self.proxy, self.proxyPass),
                                    self.proxyUrl)
+            self.log("Set proxy to '{0}'".format(self.proxy), 4)
 
     def __call__(self, **kwargs):
 
@@ -253,8 +264,13 @@ class InputOptions:
         elements = list()
         inputs = list()
         InputOptions._recursiveExtractElements(elements, element)
+        names = []
+        duplicates = False
         for element in elements:
             name = element[0].name
+            if name in names:
+                duplicates = True
+            names.append(name)
             parent = element[1]
             attributes = element[0].attributes
             setable = False
@@ -262,6 +278,8 @@ class InputOptions:
                 setable = True
             inputs.append(InputElement(name, parent, attributes, setable, element[0]))
         self.__elements = tuple(inputs)
+        if not duplicates:
+            self.simplify()
 
     def __getattr__(self, item):
         return self.__getitem__(item)
@@ -272,7 +290,6 @@ class InputOptions:
         for each in self.__elements:
             s += "[{0}]: {1}".format(i, each)
             i += 1
-        s += '}'
         return s
 
     def __getitem__(self, key):
@@ -286,6 +303,15 @@ class InputOptions:
     @property
     def items(self):
         return self.__elements
+
+    def simplify(self):
+        """
+        Simplify is called automatically by InputOptions after construction if there are no repeated input key names.
+        It can be called manually to force simplification of input names, but this is usually not desirable.
+        :return: None
+        """
+        for each in self.items:
+            each.simplify()
 
     @staticmethod
     def _recursiveExtractElements(l: list, element, parent=None):
@@ -372,11 +398,7 @@ class InputElement:
         self.__innerXml = xml
 
     @property
-    def items(self):
-        return self.attributes
-
-    @property
-    def attributes(self):
+    def attributes(self) -> tuple:
         # Not memo-ized because contents of tuple are mutable
         return self.__attrs
 
@@ -391,6 +413,15 @@ class InputElement:
     @property
     def ref(self):
         return self.__ref
+
+    def simplify(self):
+        """
+        Simplify is called automatically by InputOptions after construction if there are no repeated input key names.
+        It can be called manually to force simplification of input names, but this is usually not desirable.
+        :return: None
+        """
+        if self.parent is not None:
+            self.__name = self.name.replace(self.parent.name+"_", "")
 
     def __setitem__(self, key, value):
         if isinstance(key, int):

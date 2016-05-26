@@ -1,11 +1,85 @@
-from soapy.wsdl.element import Element
+from soapy.wsdl.element import Element, Namespace
 
 """ Types are XML tags the reside inside a schema tag, inside the types tag
  They are significantly different from normal elements, as they represent the elements in
- the SOAP body as opposed to the WSDL itself """
+ the SOAP body as opposed to the WSDL itself, and contain helper methods to assist the Marshaller to render
+ correct XML elements"""
 
 
-class TypeContainer(Element):
+class TypeBase(Element):
+
+    def update(self, parent, parentUpdates=dict()):
+
+        for child in self.children:
+            if child is None:
+                continue
+            try:
+                parentUpdates.update(self.updateParentElement(parent))
+            except (TypeError, AttributeError):
+                pass
+            child.update(parent, parentUpdates)
+        if isinstance(self, TypeElement):
+            for key, value in parentUpdates:
+                self.bsElement[key] = value
+
+    def _processElementChildren(self, parents=list()) -> list:
+
+        # First, process any child updates specified by TypeContainer Children
+
+        childUpdates = dict()
+        try:
+            cUpdate = self.updateChildElements()
+            if cUpdate is not None:
+                self.log("Found update item(s) for Children: {0}".format(cUpdate), 4)
+                childUpdates.update(cUpdate)
+        except AttributeError:
+            """ Do nothing, we are in a TypeElement object """
+
+        # Next, Extend the list of children with each child's element children
+
+        children = list()
+        for each in self.children:
+            if isinstance(each, TypeElement):
+                if each.bsElement not in parents:
+                    children.append(each)
+            elif each is None:
+                continue
+            else:
+                parents.append(self.bsElement)
+                children.extend(each._processElementChildren(parents))
+
+        # Lastly, apply all child updates to each child element
+
+        if len(childUpdates) > 0:
+            self.log("Processing all parent-induced updates for all children", 5)
+            for child in children:
+                for attr, value in childUpdates.items():
+                    child.bsElement[attr] = value
+        self.__elementChildren = tuple(children)
+        return self.__elementChildren
+
+        self.log("All TypeElement children identified", 5)
+        return children
+
+    @property
+    def elementChildren(self) -> tuple:
+        try:
+            return self.__elementChildren
+        except AttributeError:
+            self.log("In recursive process of isolating and updating TypeElement children", 5)
+            return self._processElementChildren([self.bsElement])
+
+    @property
+    def namespace(self) -> Namespace:
+        try:
+            return self.__namespace
+        except AttributeError:
+            self.__namespace = Namespace(self.bsElement, self.log)
+            return self.__namespace
+
+
+
+class TypeContainer(TypeBase):
     """ Any <tag> defined in a schema that is not an element. In other words, it contains or
     describes other elements. E.g, <sequence> or <complexType> """
 
@@ -47,7 +121,7 @@ class TypeContainer(Element):
         changes that should be made to the child bsElement attributes """
 
 
-class TypeElement(Element):
+class TypeElement(TypeBase):
     """ Class containing attributes and properties of an element in a Type definition """
 
     @property
@@ -64,7 +138,6 @@ class TypeElement(Element):
                     attributes.extend(child.parentAttributes)
                 except AttributeError:
                     """ Do nothing, because this means it's an Element """
-
             self.__attributes = tuple(attributes)
             return self.__attributes
 
@@ -99,7 +172,8 @@ class TypeElement(Element):
             if len(children) == 0:
                 softChild = self.parent.findTypeByName(self.type, self.schema.name)
                 if softChild is not None:
-                    children.append(softChild)
+                    if self.bsElement.counter < 2:
+                        children.append(softChild)
             self.__children = tuple(children)
             return self.__children
 
@@ -118,11 +192,11 @@ class Attribute(Element):
     @property
     def default(self) -> str:
         return self.bsElement.get('default',
-            self.bsElement.get("fixed",None))
+            self.bsElement.get("fixed", None))
 
     @property
     def fixed(self) -> bool:
-        return self.bsElement.get('fixed',False)
+        return self.bsElement.get('fixed', False)
 
 
 class ComplexType(TypeContainer):
@@ -158,6 +232,6 @@ class Extension(TypeContainer):
 class SequenceType(TypeContainer):
     """ Class representing an ordered sequence of types """
 
-    def updateParentElement(self,parent) -> dict:
-        return {"type":parent.type}
+    def updateParentElement(self, parent) -> dict:
+        return {"type": parent.type}
 
