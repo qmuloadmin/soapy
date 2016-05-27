@@ -29,6 +29,8 @@ class Namespace:
                 if key.startswith('xmlns'):
                     try:
                         attrs.append(key.split(":")[1])
+                        self.log("Found namespace '{0}'"
+                                 .format(key.split(":")[1]), 0)
                     except IndexError:
                         pass
             self.__names = tuple(attrs)
@@ -100,6 +102,14 @@ class Element():
     @property
     def tag(self) -> str:
         return self.__bsElement.name
+
+    @property
+    def namespace(self) -> Namespace:
+        try:
+            return self.__namespace
+        except AttributeError:
+            self.__namespace = Namespace(self.bsElement, self.log)
+            return self.__namespace
 
     @property
     def children(self) -> tuple:

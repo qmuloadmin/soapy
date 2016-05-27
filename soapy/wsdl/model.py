@@ -140,10 +140,6 @@ class Part(Element):
     def ns(self) -> str:
         return self.bsElement['element'].split(':')[0]
 
-    @property
-    def namespace(self) -> str:
-        return self.ns
-
 
 class Operation(Element):
     """ Simplified, native Python representation of an operation definition in portType element group"""

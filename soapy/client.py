@@ -1,5 +1,5 @@
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError
 
@@ -261,14 +261,138 @@ class Client(Log):
             raise ConnectionError(str(e))
 
         self.log("Web service call complete, status code is {0}".format(self.response.status_code), 3)
-        if "xml" in self.response.headers["Content-Type"]:
-            self.log("Rendering response XML", 5)
-            self.responseXml = BeautifulSoup(self.response.text, "xml")
-        else:
-            self.log("Response is not XML, or has incorrect Content-Type headers", 1)
-            self.responseXml = None
+        self.log("Creating new Response object", 5)
+        return Response(self.response, self)
 
-        return self.responseXml
+
+class Response:
+    """ Object describes the web service response, attempts to provide simple status indication and messages,
+        and provides someone intelligent methods for interacting with the response.
+        Response encapsulates both "output" messages and "fault" messages. """
+
+    #TODO add helper property and method(s) for fault messages
+
+    def __init__(self, response, client: Client):
+        self.__response = response
+        if self.isXml:
+            self.__bsResponse = BeautifulSoup(self.text, "xml")
+        else:
+            self.__bsResponse = BeautifulSoup(self.text, "lxml")
+        self.__client = client
+        self.outputs = tuple()
+        self.faults = tuple()
+        faults = list()
+        outputs = list()
+        if self.__client.operation.fault is not None:
+            self.__client.log("Initializing list of faults for this operation", 5)
+            for part in self.__client.operation.fault.parts:
+                faults.append(self.bsResponse(part.type.name)[0])
+        for part in self.__client.operation.output.parts:
+            try:
+                outputs.append(self.bsResponse(part.type.name)[0])
+            except IndexError:
+                " Do nothing because there was no valid XML response (probably 500 error, etc) "
+        self.outputs = tuple(outputs)
+        self.faults = tuple(faults)
+        if self:
+            self.__client.log("Initialized Successful Response object", 4)
+        else:
+            self.__client.log("Initialized Unsuccessful Response object with status code {0}"
+                              .format(self.status), 4)
+
+    def __bool__(self):
+        if not self.__response.ok:
+            return False
+        if not self.isXml:
+            return False
+        for each in self.faults:
+            if not each.isSelfClosing and not each.is_empty_element:
+                return False
+        if not len(self.outputs):
+            return False
+        return True
+
+    def __str__(self):
+        return self.text
+
+    @property
+    def status(self):
+        return self.__response.status_code
+
+    @property
+    def isXml(self) -> bool:
+        if self.contentType is None:
+            self.__client.log("Response is missing Content-Type header", 1)
+            return False
+        if "xml" in self.contentType:
+            return True
+        self.__client.log("Response is not XML, or has incorrect Content-Type headers", 1)
+        return False
+
+    @property
+    def text(self) -> str:
+        return self.__response.text
+
+    @property
+    def contentType(self) -> str:
+        try:
+            return self.__response.headers["Content-Type"]
+        except KeyError:
+            return None
+
+    @property
+    def bsResponse(self):
+        return self.__bsResponse
+
+    @property
+    def simpleOutputs(self) -> dict:
+        """
+        Tuple of only significant outputs, without parent-child relationships. Empty elements will be ignored
+        :return: dict
+        """
+        try:
+            return self.__simpleOutputs
+        except AttributeError:
+            self.__client.log("Starting recursive consolidation of outputs", 4)
+            simpleOutputs = dict()
+            for output in self.outputs:
+                for child in output.children:
+                    self._recursiveExtractSignificantChildren(child, simpleOutputs)
+            self.__simpleOutputs = simpleOutputs
+            self.__client.log("Significant outputs identified: {0}".format(simpleOutputs), 5)
+            return self.__simpleOutputs
+
+    @staticmethod
+    def _recursiveExtractSignificantChildren(bsElement: Tag, d: dict, parent=None, already=list()) -> None:
+
+        """
+        :param bsElement: BeautifulSoup Tag from the response output
+        :param d: Dictionary to be updated with values
+        :param parent: Parent BeautifulSoup tag, if applicable
+        :param already: List of bsElements already traversed. Prevents accidental overlap
+        :return:
+        """
+
+        if not isinstance(bsElement, Tag):
+            return
+        if bsElement in already:
+            return
+        else:
+            already.append(bsElement)
+        if bsElement.string:
+            name = bsElement.name
+            if parent is not None:
+                name = parent.name + "_" + name
+            if name in d.keys():
+                # Assume that its a list of values, and convert to a list or append to existing list
+                try:
+                    d[name].append(bsElement.string.strip())
+                except AttributeError:
+                    d[name] = [d[name], bsElement.string.strip()]
+            else:
+                d.update({name: bsElement.string.strip()})
+        for each in bsElement.children:
+            Response._recursiveExtractSignificantChildren(each, d, bsElement, already)
 
 
 class InputOptions:
@@ -277,7 +401,8 @@ class InputOptions:
 
     def __init__(self, element):
         
-        """ Walks the object tree to find all elements and creates  """
+        """ Walks the object tree to find all elements and creates a flat index of each possible input element and
+         its attributes """
 
         elements = list()
         inputs = list()

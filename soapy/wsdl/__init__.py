@@ -110,19 +110,24 @@ class Wsdl(Log):
         try:
             return self.__schemas
         except AttributeError:
-            types = self.wsdl('types', recursive=False)[0]
-            schemas = list()
-            for schema in types('schema', recursive=False):
-                schemas.append(Schema(schema, self))
+            def importSchemas(schema):
                 imports = schema("import", recursive=False)
                 for each in imports:
                     try:
                         schemaSoup = self._downloadSchema(each["schemaLocation"])
                         for addSchema in schemaSoup("schema", recursive=False):
                             schemas.append(Schema(addSchema, self, None, False))
-                    except:
-                        """ Assume (for now) that it's a local schema """
+                            importSchemas(addSchema)
+                    except KeyError:
+                        """ Assume (for now) that it's a local schema being imported into this one """
                         # TODO update this logic to be more robust
+
+            types = self.wsdl('types', recursive=False)[0]
+            schemas = list()
+            for schema in types('schema', recursive=False):
+                schemas.append(Schema(schema, self))
+                importSchemas(schema)
+
             self.__schemas = tuple(schemas)
             return self.__schemas
 
@@ -194,7 +199,14 @@ class Wsdl(Log):
                     break
                 except KeyError:
                     pass
-        return targetNs
+        try:
+            return targetNs
+        except UnboundLocalError:
+            """ There is a bug with bs4, where XML namespaces get consolidated, but ns: components of
+            attributes do not get updated with the consolidated value. As a result, we actually can't
+            identify -exactly- where this element belongs, as we can't resolve the ns tag. So, we just
+            return None here and all schemas will be searched, using the first match. """
+            return None
 
     def findTypeByName(self, name, targetNs='') -> Element:
 
@@ -241,5 +253,12 @@ class Wsdl(Log):
                 tags = schema.bsElement("", {"name": name}, recursive=False)
                 if len(tags) > 0:
                     return self.typeFactory(tags[0], schema)
+            elif targetNs is None:
+                self.log("Unable to identify target namepsace! This is probably due to a bug in underlying modules. "
+                         + "First global match will be used", 1)
+                tags = schema.bsElement("", {"name": name}, recursive=False)
+                if len(tags) > 0:
+                    return self.typeFactory(tags[0], schema)
+
         self.log("Unable to find Type based on name {0}".format(name), 2)
         return None

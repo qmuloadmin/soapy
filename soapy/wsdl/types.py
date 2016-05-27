@@ -1,4 +1,4 @@
-from soapy.wsdl.element import Element, Namespace
+from soapy.wsdl.element import Element
 
 """ Types are XML tags the reside inside a schema tag, inside the types tag
  They are significantly different from normal elements, as they represent the elements in
@@ -68,15 +68,6 @@ class TypeBase(Element):
         except AttributeError:
             self.log("In recursive process of isolating and updating TypeElement children", 5)
             return self._processElementChildren([self.bsElement])
-
-    @property
-    def namespace(self) -> Namespace:
-        try:
-            return self.__namespace
-        except AttributeError:
-            self.__namespace = Namespace(self.bsElement, self.log)
-            return self.__namespace
-
 
 
 class TypeContainer(TypeBase):
