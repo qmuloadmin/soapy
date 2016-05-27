@@ -201,12 +201,13 @@ class Client(Log):
 
     def _buildFinalProxyUrl(self):
         self.log("Building proxy Url with provided information", 5)
+        self.proxyUrl = self.proxy
         if self.proxyUser is not None:
             import re
-            self.proxy = re.sub(r"^(https?://)([^@]+)$",
-                                   "\1{0}:{1}@\2"
-                                   .format(self.proxy, self.proxyPass),
-                                   self.proxyUrl)
+            self.proxyUrl = re.sub(r"^(https?://)([^@]+)$",
+                                   r"\1{0}:{1}@\2"
+                                   .format(self.proxyUser, self.proxyPass),
+                                   self.proxy)
             self.log("Set proxy to '{0}'".format(self.proxy), 4)
 
     def __call__(self, **kwargs):
@@ -229,7 +230,7 @@ class Client(Log):
             self.username = kwargs["username"]
             self.password = kwargs["password"]
         if "proxyUrl" in keys:
-            self.proxyUrl = kwargs["proxyUrl"]
+            self.proxy = kwargs["proxyUrl"]
         if "proxyUser" in keys:
             self.proxyUser = kwargs["proxyUser"]
         if "proxyPass" in keys:
@@ -270,7 +271,7 @@ class Response:
         and provides someone intelligent methods for interacting with the response.
         Response encapsulates both "output" messages and "fault" messages. """
 
-    #TODO add helper property and method(s) for fault messages
+    # TODO add helper property and method(s) for fault messages
 
     def __init__(self, response, client: Client):
         self.__response = response
@@ -347,7 +348,9 @@ class Response:
     @property
     def simpleOutputs(self) -> dict:
         """
-        Tuple of only significant outputs, without parent-child relationships. Empty elements will be ignored
+        Tuple of only significant outputs, without parent-child relationships. Makes some assumptions that could
+        result in losing data in rare cases. With more complicated responses, it is recommended to use outputs
+        instead of simpleOutputs.
         :return: dict
         """
         try:
@@ -363,36 +366,41 @@ class Response:
             return self.__simpleOutputs
 
     @staticmethod
-    def _recursiveExtractSignificantChildren(bsElement: Tag, d: dict, parent=None, already=list()) -> None:
+    def _recursiveExtractSignificantChildren(bsElement: Tag, d: dict, parent=None) -> None:
 
         """
         :param bsElement: BeautifulSoup Tag from the response output
         :param d: Dictionary to be updated with values
         :param parent: Parent BeautifulSoup tag, if applicable
-        :param already: List of bsElements already traversed. Prevents accidental overlap
         :return:
         """
 
         if not isinstance(bsElement, Tag):
             return
-        if bsElement in already:
-            return
-        else:
-            already.append(bsElement)
-        if bsElement.string:
+        if bsElement.string is not None:
             name = bsElement.name
-            if parent is not None:
-                name = parent.name + "_" + name
+            value = str(bsElement.string).strip()
+            if name in d.keys():
+                if parent is not None:
+                    if d[name]["parent"] != parent.name:
+                        # Disambiguate both child keys, rebuild the previous dict item
+                        otherParent = d[name]["parent"]
+                        otherValue = d[name]["value"]
+                        del d[name]
+                        d[otherParent + "_" + name] = {"value": otherValue,
+                                                       "parent": otherParent}
+                        name = parent.name + "_" + name
             if name in d.keys():
                 # Assume that its a list of values, and convert to a list or append to existing list
                 try:
-                    d[name].append(bsElement.string.strip())
+                    d[name]["value"].append(value)
                 except AttributeError:
-                    d[name] = [d[name], bsElement.string.strip()]
+                    d[name]["value"] = [d[name]["value"], value]
             else:
-                d.update({name: bsElement.string.strip()})
+                d.update({name: {"value": value,
+                                 "parent": parent.name}})
         for each in bsElement.children:
-            Response._recursiveExtractSignificantChildren(each, d, bsElement, already)
+            Response._recursiveExtractSignificantChildren(each, d, bsElement)
 
 
 class InputOptions:

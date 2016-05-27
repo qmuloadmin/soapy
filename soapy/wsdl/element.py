@@ -30,7 +30,7 @@ class Namespace:
                     try:
                         attrs.append(key.split(":")[1])
                         self.log("Found namespace '{0}'"
-                                 .format(key.split(":")[1]), 0)
+                                 .format(key.split(":")[1]), 5)
                     except IndexError:
                         pass
             self.__names = tuple(attrs)

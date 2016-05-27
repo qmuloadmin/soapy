@@ -51,8 +51,6 @@ class Wsdl(Log):
             self.log("Unsupported protocol for WSDL location: {0}".format(wsdl_location), 0)
             raise ValueError("Unsupported protocol for WSDL location: {0}".format(wsdl_location))
 
-        # TODO handle URLs with http/https
-
     @property
     def wsdl(self) -> Tag:
         try:

@@ -280,6 +280,10 @@ class Element(Marshaller):
         return self.childrenHaveValues
 
     def _processNullValues(self) -> bool:
+        """ Sets the XML content of the tag to the appropriate form of Null, if the element should be empty,
+        otherwise, return False and do nothing
+        :return: bool """
+
         if self.inputObj.value is None:
             if self.definition.minOccurs == "0":
                self.__xml = ""
@@ -292,7 +296,7 @@ class Element(Marshaller):
 
     def render(self) -> None:
 
-        # Bail out early if empty and optional or nillable
+        # Bail out early if empty and optional or nillable, and have no children
 
         if self.inputObj.setable and self.inputObj.innerXml is None:
             if self._processNullValues():
@@ -319,13 +323,15 @@ class Element(Marshaller):
                 self.log("Processed null value for element {0}".format(self.definition.name), 5)
                 return
 
+        # At this point, the element is being rendered, so render attributes, and then the close brace '>'
+
         for attr in self.definition.attributes:
             if self.inputObj[attr.name].value is not None:
                 self.__xml += """{0}="{1}" """.format(attr.name, self.inputObj[attr.name].value)
 
         self.__xml += ">"
 
-        # Update inner xml, either using child xml values, or innerXml from inputObj
+        # Update inner xml, either using child xml values, innerXml from inputObj, or the value from inputObj
 
         if self.inputObj.innerXml is not None:
             self.__xml += self.inputObj.innerXml
@@ -338,6 +344,8 @@ class Element(Marshaller):
             self.__xml += "\n"
             for each in self.children:
                 self.__xml += each.xml
+
+        # Finally, close out the tag
 
         if self.parent.schema.elementForm == "qualified" or self.__top_level:
             self.__xml += "</{0}:{1}>\n".format(self.tns, self.definition.name.strip())
