@@ -15,6 +15,8 @@ class Wsdl(Log):
     """ Class reads in WSDL and forms various child objects held together by this parent class
     Which essentially converts wsdl objects inside 'definitions' into Python native objects """
 
+    __name__= "wsdl"
+
     def __init__(self, wsdl_location, tracelevel=1, **kwargs):
 
         """ wsdl_location is FQDN and URL of WSDL, must include protocol, e.g. http/file

@@ -28,6 +28,8 @@ class Envelope(Marshaller):
 
     """ Class to build the envelope """
 
+    __name__ = "marshal"
+
     def __init__(self, client):
         self.__parts = client.operation.input.parts
         self.__schema = self.parts[0].type.schema
@@ -121,6 +123,8 @@ class Envelope(Marshaller):
     def targetNs(self):
         return self.__targetNs
 
+    def __str__(self):
+        return self.xml
 
 class Header(Marshaller):
 
@@ -339,7 +343,7 @@ class Element(Marshaller):
             if self.inputObj.value is not None:
                 self.log("Setting value of element {0} to '{1}'"
                          .format(self.definition.name, self.inputObj.value), 5)
-                self.__xml += self.inputObj.value
+                self.__xml += str(self.inputObj.value)
         else:
             self.__xml += "\n"
             for each in self.children:

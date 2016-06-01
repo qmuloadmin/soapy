@@ -15,6 +15,8 @@ class Client(Log):
     values for a given operation, and sending request. Works with Marshaller to 
     generate SOAP envelope for request """
 
+    __name__ = "client"
+
     def __init__(self, wsdl_location: str, tl=0, operation=None, service=None, **kwargs):
         
         """ Provide a wsdl file location url, e.g. http://my.domain.com/some/service?wsdl or
@@ -132,16 +134,22 @@ class Client(Log):
                         self.__port = port
                         self.__service = service
         else:
-            for operation in ops(self.service):
+            for port, operation in ops(self.service):
                 if operation.name == operationName:
                     found = True
                     self.__operation = operation
+                    self.__port = port
         if not found:
             self.log("Search for operation matching name {0} failed; No such operation"
                      .format(operationName), 1)
             raise ValueError("No such operation: {0}".format(operationName))
         else:
             self.log("Set client operation to {0}".format(self.operation), 3)
+            # Clear any input object, as a new operation will have a new input object
+            try:
+                del self.__inputs
+            except AttributeError:
+                " Do nothing, as this means inputs were never generated for the previous operation "
 
     @property
     def schema(self):
@@ -169,7 +177,7 @@ class Client(Log):
         except AttributeError:
             try:
                 inputs = list()
-                self.log("Building list of inputs for operation {0}".format(self.operation), 4)
+                self.log("Building list of inputs for operation {0}".format(self.operation.name), 4)
                 for each in self.operation.input.parts:
                     inputs.append(InputOptions(each.type))
                 self.__inputs = tuple(inputs)
@@ -183,6 +191,9 @@ class Client(Log):
             return self.__requestEnvelope
         except AttributeError:
             self._buildEnvelope()
+            self.log("Rendered request envelope: {0}"
+                     .format(self.__requestEnvelope),
+                     5)
             return self.__requestEnvelope
 
     def _buildEnvelope(self):

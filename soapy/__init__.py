@@ -32,5 +32,5 @@ class Log:
             elif tl == 5:
                 prefix = "DEBUG:	"
             message = message.replace("\n", "")
-            print(prefix + str(time.ctime()) + " | " + message + " |")
+            print(prefix + str(time.ctime()) + " | " + str(self.__name__) + ": " + message + " |")
 
