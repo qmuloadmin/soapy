@@ -1,7 +1,9 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 
+from soapy import Log
 
-class Marshaller(metaclass=ABCMeta):
+
+class Marshaller(Log, metaclass=ABCMeta):
 
     """ Base class for marshalling data from Wsdl class to SOAP envelope """
     
@@ -14,23 +16,16 @@ class Marshaller(metaclass=ABCMeta):
     def render(self):
         
         """ Resolve dependencies, namespaces, and populate xml string """
-
-    @abstractmethod
-    def log(self, message, tl):
-
-        """ Map to correct logging instance based on instance heredity
-        Args:
-            message (str): the message to be logged if tracelevel is high enough
-            tl (int): The importance of the message, 0 is critical, 5 is debug """
     
 
 class Envelope(Marshaller):
 
     """ Class to build the envelope """
 
-    __name__ = "marshal"
+    __name__ = "marshaller"
 
     def __init__(self, client):
+        super().__init__(client.tl)
         self.__parts = client.operation.input.parts
         self.__schema = self.parts[0].type.schema
         self.log("Initializing new Envelope", 4)
@@ -77,9 +72,6 @@ class Envelope(Marshaller):
         self.__xml += self.body.xml
         self.__xml += "</{0}:Envelope>".format(self.soapNs)
         self.log("Envelope rendered successfully", 4)
-
-    def log(self, message, tl):
-        self.schema.parent.log(message, tl)
 
     @property
     def parts(self):
@@ -225,11 +217,12 @@ class Element(Marshaller):
         else:
             self.tns = self.parent.targetNs
 
-        # If elementForm for the schema is qualified, we need to print ns, otherwise, only if it's the first element
-        if self.definition.schema.elementForm == "qualified" or self.__top_level:
-            self.__xml = "<{0}:{1} ".format(self.tns, self.definition.name.strip())
+        # If elementForm for the schema and element is qualified, we need to print ns,
+        # otherwise, only if it's the first element
+        if (self.parent.schema.elementForm == "qualified" and self.definition.form == "qualified") or self.__top_level:
+            self.__xml = "<{0}:{1}".format(self.tns, self.definition.name.strip())
         else:
-            self.__xml = "<{0} ".format(self.definition.name.strip())
+            self.__xml = "<{0}".format(self.definition.name.strip())
         self.__children = tuple([Element(envelope, child, self.part, False)
                                 for child in self.definition.elementChildren])
 
@@ -292,7 +285,7 @@ class Element(Marshaller):
             if self.definition.minOccurs == "0":
                self.__xml = ""
             elif self.definition.nillable == "true":
-                self.__xml += '{0}:nil="true" />\n'.format(self.parent.XmlNs)
+                self.__xml += ' {0}:nil="true" />\n'.format(self.parent.XmlNs)
             else:
                 self.__xml += '/>\n'
             return True
@@ -331,7 +324,7 @@ class Element(Marshaller):
 
         for attr in self.definition.attributes:
             if self.inputObj[attr.name].value is not None:
-                self.__xml += """{0}="{1}" """.format(attr.name, self.inputObj[attr.name].value)
+                self.__xml += ' {0}="{1}"'.format(attr.name, self.inputObj[attr.name].value)
 
         self.__xml += ">"
 
@@ -351,7 +344,7 @@ class Element(Marshaller):
 
         # Finally, close out the tag
 
-        if self.parent.schema.elementForm == "qualified" or self.__top_level:
+        if (self.parent.schema.elementForm == "qualified" and self.definition.form == "qualified") or self.__top_level:
             self.__xml += "</{0}:{1}>\n".format(self.tns, self.definition.name.strip())
         else:
             self.__xml += "</{0}>\n".format(self.definition.name.strip())

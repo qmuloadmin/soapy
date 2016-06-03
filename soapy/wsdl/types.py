@@ -145,6 +145,10 @@ class TypeElement(TypeBase):
         return self.bsElement.get("minOccurs", "1")
 
     @property
+    def form(self) -> str:
+            return self.bsElement.get("form", "qualified")
+
+    @property
     def type(self) -> str:
         try:
             return self.bsElement['type']

@@ -285,6 +285,12 @@ class Response:
     # TODO add helper property and method(s) for fault messages
 
     def __init__(self, response, client: Client):
+        """
+        Intended to be initialized via Client upon receiving response
+        :param response: requests Response object
+        :param client: the client object which called Response
+        """
+
         self.__response = response
         if self.isXml:
             self.__bsResponse = BeautifulSoup(self.text, "xml")
