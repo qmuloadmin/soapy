@@ -550,20 +550,20 @@ class InputElement:
             raise TypeError("Can't set value of element {0}".format(self.name))
 
     @property
-    def innerXml(self) -> str:
+    def inner_xml(self) -> str:
         try:
-            return self.__innerXml
+            return self.__inner_xml
         except AttributeError:
             return None
     
-    @innerXml.setter
-    def innerXml(self, xml: str):
+    @inner_xml.setter
+    def inner_xml(self, xml: str):
 
         """ Setting innerXml will override the marshaller's behavior with rendering the XML
         from the WSDL and input objects and simply include what you specify, replacing all
         children elements (if present) and any text content in 'value' attribute """
 
-        self.__innerXml = xml
+        self.__inner_xml = xml
 
     @property
     def attributes(self) -> tuple:

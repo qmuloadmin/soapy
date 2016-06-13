@@ -29,17 +29,17 @@ class Envelope(Marshaller):
         self.__parts = client.operation.input.parts
         self.__schema = self.parts[0].type.schema
         self.log("Initializing new Envelope", 4)
-        self.usedNs = dict()
-        self.usedNs["tns"] = self.schema.name
+        self.used_ns = dict()
+        self.used_ns["tns"] = self.schema.name
         self.__targetNs = "tns"
-        self.__tnsMap = {}
-        self.__nsCounter = 1
-        self.__xml = """<{0}:Envelope """.format(self.soapNs)
+        self.__tns_map = {}
+        self.__ns_counter = 1
+        self.__xml = """<{0}:Envelope """.format(self.soap_ns)
         self.__inputs = client.inputs
         self.__body = Body(self)
         self.__header = Header(self)
 
-    def registerNamespace(self, definition, object):
+    def register_namespace(self, definition, object):
 
         """  When an element is not in the same schema (and thus NS) as the Body/Envelope,
         we need to define and declare it, as well as be able to tell the element what its
@@ -50,27 +50,27 @@ class Envelope(Marshaller):
         :return: None
         """
 
-        for name, value in self.usedNs.items():
+        for name, value in self.used_ns.items():
             if value == definition:
-                self.__tnsMap[object] = name
+                self.__tns_map[object] = name
                 return
-        name = self.targetNs + str(self.__nsCounter)
-        self.usedNs[name] = definition
-        self.__tnsMap[object] = name
+        name = self.target_ns + str(self.__ns_counter)
+        self.used_ns[name] = definition
+        self.__tns_map[object] = name
         self.log("Registered new namespace of {0}".format(name), 5)
-        self.__nsCounter += 1
+        self.__ns_counter += 1
 
     def render(self):
         self.header.render()
         self.log("Header rendered successfully", 5)
         self.body.render()
         self.log("Body rendered successfully", 5)
-        for key, item in self.usedNs.items():
+        for key, item in self.used_ns.items():
             self.__xml += """xmlns:{0}="{1}" """.format(key, item)
         self.__xml += ">\n"
         self.__xml += self.header.xml
         self.__xml += self.body.xml
-        self.__xml += "</{0}:Envelope>".format(self.soapNs)
+        self.__xml += "</{0}:Envelope>".format(self.soap_ns)
         self.log("Envelope rendered successfully", 4)
 
     @property
@@ -82,8 +82,8 @@ class Envelope(Marshaller):
         return self.__inputs
 
     @property
-    def tnsMap(self):
-        return self.__tnsMap
+    def tns_map(self):
+        return self.__tns_map
 
     @property
     def xml(self):
@@ -102,21 +102,22 @@ class Envelope(Marshaller):
         return self.__schema
 
     @property
-    def soapNs(self):
-        self.usedNs["soapenv"] = "http://schemas.xmlsoap.org/soap/envelope/"
+    def soap_ns(self):
+        self.used_ns["soapenv"] = "http://schemas.xmlsoap.org/soap/envelope/"
         return "soapenv"
 
     @property
-    def XmlNs(self):
-        self.usedNs["xsi"] = "http://www.w3.org/2001/XMLSchema-instance"
+    def xml_ns(self):
+        self.used_ns["xsi"] = "http://www.w3.org/2001/XMLSchema-instance"
         return "xsi"
 
     @property
-    def targetNs(self):
+    def target_ns(self):
         return self.__targetNs
 
     def __str__(self):
         return self.xml
+
 
 class Header(Marshaller):
 
@@ -126,7 +127,7 @@ class Header(Marshaller):
 
         self.__parent = envelope
         self.log("Initializing new Header", 5)
-        self.__xml = "<{0}:Header/>\n".format(envelope.soapNs)
+        self.__xml = "<{0}:Header/>\n".format(envelope.soap_ns)
 
     @property
     def parent(self):
@@ -152,7 +153,7 @@ class Body(Marshaller):
 
     def __init__(self, envelope: Envelope):
 
-        self.__xml = "<{0}:Body>\n".format(envelope.soapNs)
+        self.__xml = "<{0}:Body>\n".format(envelope.soap_ns)
         self.__parent = envelope
         self.log("Initializing new Body", 5)
         self.__elements = tuple([Element(envelope, part.type, i)
@@ -181,7 +182,7 @@ class Body(Marshaller):
         self.log("All child Elements rendered successfully", 5)
         for element in self.elements:
             self.__xml += element.xml
-        self.__xml += "</{0}:Body>\n".format(self.parent.soapNs)
+        self.__xml += "</{0}:Body>\n".format(self.parent.soap_ns)
 
 
 class Element(Marshaller):
@@ -204,25 +205,28 @@ class Element(Marshaller):
         self.log("Initializing new Element based on {0}".format(element.name), 5)
         self.__part = part
         self.__definition = element
-        self.childrenHaveValues = False
+        self.children_have_values = False
+        self.__xml = ""
+        self.__close_tag = ""
+        self.__inner_xml = ""
 
         # Check to see if the schema of the element is the same as the body/envelope default tns.
         # If not, then we need to update the Envelope with a new xmlns definition and use a different
         # ns in our tags
 
         if self.definition.schema.name is not self.parent.schema.name:
-            self.parent.registerNamespace(self.definition.schema.name,
-                                          self)
-            self.tns = self.parent.tnsMap[self]
+            self.parent.register_namespace(self.definition.schema.name,
+                                           self)
+            self.tns = self.parent.tns_map[self]
         else:
-            self.tns = self.parent.targetNs
+            self.tns = self.parent.target_ns
 
         # If elementForm for the schema and element is qualified, we need to print ns,
         # otherwise, only if it's the first element
         if (self.parent.schema.elementForm == "qualified" and self.definition.form == "qualified") or self.__top_level:
-            self.__xml = "<{0}:{1}".format(self.tns, self.definition.name.strip())
+            self.__open_tag = "<{0}:{1}".format(self.tns, self.definition.name.strip())
         else:
-            self.__xml = "<{0}".format(self.definition.name.strip())
+            self.__open_tag = "<{0}".format(self.definition.name.strip())
         self.__children = tuple([Element(envelope, child, self.part, False)
                                 for child in self.definition.elementChildren])
 
@@ -255,13 +259,25 @@ class Element(Marshaller):
         return self.__xml
 
     @property
+    def open_tag(self) -> str:
+        return self.__open_tag
+
+    @property
+    def close_tag(self) -> str:
+        return self.__close_tag
+
+    @property
+    def inner_xml(self) -> str:
+        return self.__inner_xml
+
+    @property
     def children(self) -> tuple:
         return self.__children
 
     def log(self, message, tl):
         self.parent.log(message, tl)
 
-    def childrenSignificant(self) -> bool:
+    def children_significant(self) -> bool:
 
         """
         Recursively inspects self and children to determine if children need rendered.
@@ -272,31 +288,45 @@ class Element(Marshaller):
         if self.inputObj.value is not None:
             return True
         for each in self.children:
-            if each.childrenSignificant() is True:
-                self.childrenHaveValues = True
-        return self.childrenHaveValues
+            if each.children_significant() is True:
+                self.children_have_values = True
+        return self.children_have_values
 
-    def _processNullValues(self) -> bool:
+    def _process_null_values(self) -> bool:
         """ Sets the XML content of the tag to the appropriate form of Null, if the element should be empty,
         otherwise, return False and do nothing
         :return: bool """
 
         if self.inputObj.value is None:
             if self.definition.minOccurs == "0":
-               self.__xml = ""
+               self.__open_tag = ""
             elif self.definition.nillable == "true":
-                self.__xml += ' {0}:nil="true" />\n'.format(self.parent.XmlNs)
+                self.__open_tag += ' {0}:nil="true" />\n'.format(self.parent.xml_ns)
             else:
-                self.__xml += '/>\n'
+                self.__open_tag += '/>\n'
+            self.__xml = self.open_tag
             return True
         return False
+
+    def _process_single_value(self, value) -> None:
+        self.log("Setting value of element {0} to '{1}'"
+                 .format(self.definition.name, value), 5)
+        self.__inner_xml += str(value)
+        self.__xml = self.open_tag + self.inner_xml + self.close_tag
+
+    def _process_iter_values(self, iter) -> None:
+        self.log("Adding values from list {0} to element {1}"
+                 .format(iter, self.definition.name), 5)
+        for each in iter:
+            self.log("Rendering value {0}".format(each), 5)
+            self.__xml += self.open_tag + str(each) + self.close_tag
 
     def render(self) -> None:
 
         # Bail out early if empty and optional or nillable, and have no children
 
-        if self.inputObj.setable and self.inputObj.innerXml is None:
-            if self._processNullValues():
+        if self.inputObj.setable and self.inputObj.inner_xml is None:
+            if self._process_null_values():
                 self.log("Processed null value for element {0}".format(self.definition.name), 5)
                 return
 
@@ -310,13 +340,13 @@ class Element(Marshaller):
 
         for each in self.children:
             each.render()
-            if each.childrenSignificant() is True:
-                self.childrenHaveValues = True
+            if each.children_significant() is True:
+                self.children_have_values = True
 
         # If all children are empty and aren't required, process null values to render element correctly
 
-        if not self.childrenHaveValues and int(self.definition.minOccurs) == 0:
-            if self._processNullValues():
+        if not self.children_have_values and int(self.definition.minOccurs) == 0:
+            if self._process_null_values():
                 self.log("Processed null value for element {0}".format(self.definition.name), 5)
                 return
 
@@ -324,27 +354,36 @@ class Element(Marshaller):
 
         for attr in self.definition.attributes:
             if self.inputObj[attr.name].value is not None:
-                self.__xml += ' {0}="{1}"'.format(attr.name, self.inputObj[attr.name].value)
+                self.__open_tag += ' {0}="{1}"'.format(attr.name, self.inputObj[attr.name].value)
 
-        self.__xml += ">"
+        self.__open_tag += ">"
+
+        # Build the close tag so we can render multiple times if we are an array
+
+        if (self.parent.schema.elementForm == "qualified" and self.definition.form == "qualified") or self.__top_level:
+            self.__close_tag = "</{0}:{1}>\n".format(self.tns, self.definition.name.strip())
+        else:
+            self.__close_tag = "</{0}>\n".format(self.definition.name.strip())
 
         # Update inner xml, either using child xml values, innerXml from inputObj, or the value from inputObj
 
-        if self.inputObj.innerXml is not None:
-            self.__xml += self.inputObj.innerXml
+        if self.inputObj.inner_xml is not None:
+            self.__inner_xml = self.inputObj.inner_xml
         elif self.inputObj.setable:
-            if self.inputObj.value is not None:
-                self.log("Setting value of element {0} to '{1}'"
-                         .format(self.definition.name, self.inputObj.value), 5)
-                self.__xml += str(self.inputObj.value)
-        else:
-            self.__xml += "\n"
+            if self.definition.maxOccurs == "unbounded" or int(self.definition.maxOccurs) > 1:
+                # Determine if a non-string iterable was passed, otherwise default to processing a single value
+                if not isinstance(self.inputObj.value, str):
+                    try:
+                        self._process_iter_values(self.inputObj.value)
+                    except TypeError:
+                        self._process_single_value(self.inputObj.value)
+                else:
+                    self._process_single_value(self.inputObj.value)
+            else:
+                # Only a single value should have been provided (will get type-casted to string)
+                self._process_single_value(self.inputObj.value)
+        else:  # if this is only a container for child elements (TODO: handle parent-level maxOccurs)
+            self.__inner_xml += "\n"
             for each in self.children:
-                self.__xml += each.xml
-
-        # Finally, close out the tag
-
-        if (self.parent.schema.elementForm == "qualified" and self.definition.form == "qualified") or self.__top_level:
-            self.__xml += "</{0}:{1}>\n".format(self.tns, self.definition.name.strip())
-        else:
-            self.__xml += "</{0}>\n".format(self.definition.name.strip())
+                self.__inner_xml += each.xml
+            self.__xml = self.open_tag + self.inner_xml + self.close_tag
