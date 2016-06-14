@@ -56,10 +56,8 @@ class TypeBase(Element):
                 for attr, value in childUpdates.items():
                     child.bsElement[attr] = value
         self.__elementChildren = tuple(children)
-        return self.__elementChildren
-
         self.log("All TypeElement children identified", 5)
-        return children
+        return self.__elementChildren
 
     @property
     def elementChildren(self) -> tuple:

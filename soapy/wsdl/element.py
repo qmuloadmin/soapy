@@ -130,9 +130,6 @@ class Element():
     def log(self, message, tl):
         self.parent.log(message, tl)
 
-    def __str__(self):
-        return str(self.__bsElement)
-
 
 # TODO probably need to move Schema to wsdl.__init__
 

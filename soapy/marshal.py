@@ -1,4 +1,5 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
+from copy import deepcopy
 
 from soapy import Log
 
@@ -207,6 +208,7 @@ class Element(Marshaller):
         self.__definition = element
         self.children_have_values = False
         self.__xml = ""
+        self.__open_tag = ""
         self.__close_tag = ""
         self.__inner_xml = ""
 
@@ -221,15 +223,6 @@ class Element(Marshaller):
         else:
             self.tns = self.parent.target_ns
 
-        # If elementForm for the schema and element is qualified, we need to print ns,
-        # otherwise, only if it's the first element
-        if (self.parent.schema.elementForm == "qualified" and self.definition.form == "qualified") or self.__top_level:
-            self.__open_tag = "<{0}:{1}".format(self.tns, self.definition.name.strip())
-        else:
-            self.__open_tag = "<{0}".format(self.definition.name.strip())
-        self.__children = tuple([Element(envelope, child, self.part, False)
-                                for child in self.definition.elementChildren])
-
         # Associate input obj from client with this Element rendering
 
         self.__inputObj = None
@@ -237,6 +230,8 @@ class Element(Marshaller):
             if obj.ref is self.definition:
                 self.__inputObj = obj
                 break
+        # Render the open tag for this element before anything else is done
+        self.render_open_tag()
 
     @property
     def part(self) -> int:
@@ -293,6 +288,7 @@ class Element(Marshaller):
         return self.children_have_values
 
     def _process_null_values(self) -> bool:
+
         """ Sets the XML content of the tag to the appropriate form of Null, if the element should be empty,
         otherwise, return False and do nothing
         :return: bool """
@@ -301,62 +297,103 @@ class Element(Marshaller):
             if self.definition.minOccurs == "0":
                self.__open_tag = ""
             elif self.definition.nillable == "true":
-                self.__open_tag += ' {0}:nil="true" />\n'.format(self.parent.xml_ns)
+                self.__open_tag = self.open_tag.replace('>', '{0}:nil="true" />\n'.format(self.parent.xml_ns))
             else:
-                self.__open_tag += '/>\n'
+                self.__open_tag = self.open_tag.replace('>', '/>\n')
             self.__xml = self.open_tag
+            self.log("Processed null value for element {0}".format(self.definition.name), 5)
             return True
         return False
 
     def _process_single_value(self, value) -> None:
+
+        """ Render inner xml appropriately for containing a single (non-Array) value """
+
         self.log("Setting value of element {0} to '{1}'"
                  .format(self.definition.name, value), 5)
-        self.__inner_xml += str(value)
+        self.__inner_xml = str(value)
         self.__xml = self.open_tag + self.inner_xml + self.close_tag
 
     def _process_iter_values(self, iter) -> None:
+
+        """
+        When an element supports multiple values (maxOccurs > 1) and an iterable (non-string) is provided, we will
+         render each item as inner xml in between its own open and close tags
+        """
+
         self.log("Adding values from list {0} to element {1}"
                  .format(iter, self.definition.name), 5)
         for each in iter:
             self.log("Rendering value {0}".format(each), 5)
-            self.__xml += self.open_tag + str(each) + self.close_tag
+            self.__xml = self.open_tag + str(each) + self.close_tag
 
-    def render(self) -> None:
+    def _process_collection_values(self):
 
-        # Bail out early if empty and optional or nillable, and have no children
+        """ Extracts the zeroth element from each collection-key and builds a new, single value collection, then renders
+         children based on that collection, iteratively. """
 
-        if self.inputObj.setable and self.inputObj.inner_xml is None:
-            if self._process_null_values():
-                self.log("Processed null value for element {0}".format(self.definition.name), 5)
-                return
+        done = False
+        collection = deepcopy(self.inputObj.collection)  # copy collections because we're going to modify it (pop)
+        while not done:
+            iter_collection = {}
+            self.__inner_xml = ""
+            try:
+                for key in collection.keys():
+                    iter_collection[key] = collection[key].pop()
+            except IndexError:
+                done = True
+            if done:
+                break
+            self.__xml += self.open_tag + "\n"
+            for child in self.children:
+                child.render(iter_collection)
+                self.__inner_xml += child.xml
+            self.__xml += self.inner_xml + self.close_tag
 
+    def render_open_tag(self):
+        # If elementForm for the schema and element is qualified, we need to print ns,
+        # otherwise, only if it's the first element
+        if (self.parent.schema.elementForm == "qualified" and self.definition.form == "qualified") or self.__top_level:
+            self.__open_tag = "<{0}:{1}".format(self.tns, self.definition.name.strip())
+        else:
+            self.__open_tag = "<{0}".format(self.definition.name.strip())
+        self.__children = tuple([Element(self.parent, child, self.part, False)
+                                for child in self.definition.elementChildren])
         # Call update to perform parent update consolidation from non-Element children
-
         self.definition.update(self)
-
-        # Render each child element to make sure parent/child updates are propagated
-        # before we actually render the static XML
-        # Then, check to see if all children are empty.
-
-        for each in self.children:
-            each.render()
-            if each.children_significant() is True:
-                self.children_have_values = True
-
-        # If all children are empty and aren't required, process null values to render element correctly
-
-        if not self.children_have_values and int(self.definition.minOccurs) == 0:
-            if self._process_null_values():
-                self.log("Processed null value for element {0}".format(self.definition.name), 5)
-                return
-
-        # At this point, the element is being rendered, so render attributes, and then the close brace '>'
-
+        # Render attributes, and then the close brace '>'
         for attr in self.definition.attributes:
             if self.inputObj[attr.name].value is not None:
                 self.__open_tag += ' {0}="{1}"'.format(attr.name, self.inputObj[attr.name].value)
-
         self.__open_tag += ">"
+
+    def render(self, collection=dict()) -> None:
+        """
+        render performs numerous checks on the definition of the request element, which is defined in the WSDL,
+        combined with the provided input object from the Client which called the Marshaller. For an Element, render
+        will do tests to determine if the element is empty, and if so, render the correct representation of the tag
+        as empty, otherwise it will render all children (using this same method on the child instance) and insert each
+        child's xml as this element's inner_xml. For elements which contain multiple values, and which support such
+        (i.e. have the maxOccurs set to larger than 1), render will appropriately handle them. The collection optional
+        parameter is used by parent elements who support arrays of values, or collection, and defines the values
+        children should have as a whole, instead of individually.
+        param collection: The dictionary provided by parent objects who contain children elements that may be repeated
+        (herein referred to as collections)
+        :return:
+        """
+
+        # Override input object value from collection if matches current element name.
+        try:
+            self.inputObj.value = collection[self.inputObj.name]
+            self.log("Using supplied collection value {0}".format(self.inputObj.value), 5)
+        except KeyError:
+            pass
+
+        # Short circuit if element is empty and optional or nillable, and has no children
+
+        if self.inputObj.setable and self.inputObj.inner_xml is None:
+            if self._process_null_values():
+                return
 
         # Build the close tag so we can render multiple times if we are an array
 
@@ -364,6 +401,27 @@ class Element(Marshaller):
             self.__close_tag = "</{0}:{1}>\n".format(self.tns, self.definition.name.strip())
         else:
             self.__close_tag = "</{0}>\n".format(self.definition.name.strip())
+
+        # Render each child element to make sure parent/child updates are propagated
+        # before we actually render the static XML
+        # Then, check to see if all children are empty.
+        # If this is a collection element, then use alternative render for children to the entire collection can be
+        # rendered appropriately
+
+        if not self.inputObj.is_collection or len(self.inputObj.collection.keys()) == 0:
+            for each in self.children:
+                each.render()
+                if each.children_significant() is True:
+                    self.children_have_values = True
+        else:
+            self._process_collection_values()
+            return
+
+        # If all children are empty and aren't required, process null values to render element correctly, short circuit
+
+        if not self.children_have_values and int(self.definition.minOccurs) == 0:
+            if self._process_null_values():
+                return
 
         # Update inner xml, either using child xml values, innerXml from inputObj, or the value from inputObj
 
@@ -382,8 +440,8 @@ class Element(Marshaller):
             else:
                 # Only a single value should have been provided (will get type-casted to string)
                 self._process_single_value(self.inputObj.value)
-        else:  # if this is only a container for child elements (TODO: handle parent-level maxOccurs)
+        else:  # if this is only a container for child elements
             self.__inner_xml += "\n"
             for each in self.children:
                 self.__inner_xml += each.xml
-            self.__xml = self.open_tag + self.inner_xml + self.close_tag
+            self.__xml += self.open_tag + self.inner_xml + self.close_tag

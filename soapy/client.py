@@ -108,11 +108,11 @@ class Client(Log):
         return self.__wsdl
 
     @property
-    def port(self) -> str:
+    def port(self) -> Port:
         return self.__port
 
     @property
-    def operation(self) -> str:
+    def operation(self) -> Operation:
         try:
             return self.__operation
         except AttributeError:
@@ -363,9 +363,9 @@ class Response:
         return self.__bsResponse
 
     @property
-    def simpleOutputs(self) -> dict:
+    def simple_outputs(self) -> dict:
         """
-        Tuple of only significant outputs, without parent-child relationships. Makes some assumptions that could
+        Dictionaryf only significant outputs, without parent-child relationships. Makes some assumptions that could
         result in losing data in rare cases. With more complicated responses, it is recommended to use outputs
         instead of simpleOutputs.
         :return: dict
@@ -420,9 +420,22 @@ class Response:
             Response._recursiveExtractSignificantChildren(each, d, bsElement)
 
 
+class InputFactory:
+    """ TODO: Create this class, to handle the shortcomings in both notation and functionality introduced by the
+    convenient, but overly-simple InputOptions class. InputFactory will maintain parent/child heirarchy, but will
+    probably require a different Marshaller class to handle (one that relies on the Factory-generated class for structure
+    instead of the WSDL representation
+    """
+
+
 class InputOptions:
     
-    """ Describes possible inputs to the web service in a pythonic fashion """
+    """ Describes possible inputs to the web service in a (somewhat) pythonic fashion. InputOptions over-simplifies WSDL
+     messages and elements to create a flattened class in order to avoid class factories. To see possible inputs, simply
+     print() this object. Individual input elements can be referenced either by index, or as a named attribute. Numeric
+     index-based lookup is supported because it is possible for two values to have the same name, and so referencing
+     the attribute by name may not be possible. Although, in such cases, or when dealing with more-complicated Web
+     Services, it is probably better to use InputFactory instead"""
 
     def __init__(self, element):
         
@@ -442,9 +455,12 @@ class InputOptions:
             parent = element[1]
             attributes = element[0].attributes
             setable = False
+            is_repeatable = False
+            if element[0].maxOccurs == "unbounded" or int(element[0].maxOccurs) > 1:
+                is_repeatable = True
             if len(element[0].elementChildren) == 0:
                 setable = True
-            inputs.append(InputElement(name, parent, attributes, setable, element[0]))
+            inputs.append(InputElement(name, parent, attributes, setable, is_repeatable, element[0]))
         self.__elements = tuple(inputs)
         if not duplicates:
             self.simplify()
@@ -499,16 +515,23 @@ class InputOptions:
 
 class InputElement:
 
-    """ An individual element of input, has a name, value and attributes. A further 
-    abstraction of the TypeElement object in soapy.wsdl.types """
+    """ An individual element of input, has a name, value, attributes and collection. A further
+    abstraction of the TypeElement object in soapy.wsdl.types, InputElements can be interacted with by setting either
+     their value (instance.value = 'some string') if they are setable (this can be checked with instance.setable), as
+     well as their attributes (if present) set via the set item (dict) syntax: instance['attributeName'] = "Value".
+     Some items represent more complicated containers of collections of data that can be repeated. In this case you can
+     set individual members using set item syntax on the collection sttribue (e.g. instance.collection["key"] = "value"
+     To see the current value (if applicable), the type (Collection, Container, etc) and the attributes of this item,
+     simply print() it """
 
-    def __init__(self, name, parent, attributes, setable, ref):
+    def __init__(self, name, parent, attributes, setable, repeatable,  ref):
         self.__parent = parent
         if self.parent is not None:
             self.__name = self.parent.name + "_" + name
         else:
             self.__name = name
         self.__setable = setable
+        self.repeatable = repeatable
         self.__ref = ref
         attrs = list()
         for attr in attributes:
@@ -521,12 +544,26 @@ class InputElement:
 
     def __str__(self):
         s = "'{0}'".format(self.name)
-        if self.innerXml is not None:
-            s += " : " + str(self.innerXml)
+        if self.inner_xml is not None:
+            s += " : " + str(self.inner_xml)
         elif self.setable:
-            s += " = " + str(self.value)
+            if self.repeatable:
+                if self.value is None:
+                    s += " = ({0},)".format(self.value)
+                else:
+                    s += " = " + str(self.value)
+            else:
+                s += " = " + str(self.value)
+        elif self.is_collection:
+            s += "(Collection) = {0}".format(self.collection)
         else:
-            s += " (Attributes only)"
+            properties = []
+            s += " ("
+            if len(self.attributes) > 0:
+                properties.append("Attributes")
+            if len(properties) == 0:
+                properties.append("Container Only")
+            s += ", ".join(properties) + ")"
         s += "\n"
         for each in self.__attrs:
             s += "    {0}\n".format(each)
@@ -544,10 +581,27 @@ class InputElement:
 
     @value.setter
     def value(self, value):
-        if self.__setable:
+        if self.setable:
             self.__value = value
         else:
             raise TypeError("Can't set value of element {0}".format(self.name))
+
+    @property
+    def is_collection(self):
+        if not self.setable and self.repeatable:
+            return True
+        else:
+            return False
+
+    @property
+    def collection(self) -> dict:
+        if not self.is_collection:
+            raise AttributeError("Non-collection element has no attribute collection")
+        try:
+            return self.__collection
+        except AttributeError:
+            self.__collection = dict()
+            return self.__collection
 
     @property
     def inner_xml(self) -> str:
@@ -585,28 +639,25 @@ class InputElement:
     def simplify(self):
         """
         Simplify is called automatically by InputOptions after construction if there are no repeated input key names.
-        It can be called manually to force simplification of input names, but this is usually not desirable.
+        It can be called manually to force simplification of input names, but this is usually not desirable. Elements
+        that are collection children are not simplified to improve clarity. A collection is a parent-level element
+        that is repeatable (maxOccurs greater than 1)
         :return: None
         """
         if self.parent is not None:
             self.__name = self.name.replace(self.parent.name+"_", "")
 
     def __setitem__(self, key, value):
-        if isinstance(key, int):
-            self.items[key].value = value
-        else:
-            found = False
-            for each in self.items:
-                if each.name == key:
-                    each.value = value
-                    found = True
-            if not found:
-                raise KeyError
+        found = False
+        for each in self.attributes:
+            if each.name == key:
+                each.value = value
+                found = True
+        if not found:
+            raise KeyError
 
     def __getitem__(self, key):
-        if isinstance(key, int):
-            return self.items[key]
-        for each in self.items:
+        for each in self.attributes:
             if each.name == key:
                 return each
         raise KeyError
