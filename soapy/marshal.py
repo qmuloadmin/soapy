@@ -297,7 +297,7 @@ class Element(Marshaller):
             if self.definition.minOccurs == "0":
                self.__open_tag = ""
             elif self.definition.nillable == "true":
-                self.__open_tag = self.open_tag.replace('>', '{0}:nil="true" />\n'.format(self.parent.xml_ns))
+                self.__open_tag = self.open_tag.replace('>', ' {0}:nil="true" />\n'.format(self.parent.xml_ns))
             else:
                 self.__open_tag = self.open_tag.replace('>', '/>\n')
             self.__xml = self.open_tag
