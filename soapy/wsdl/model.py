@@ -163,16 +163,18 @@ class Operation(Element):
             return self.__output
 
     @property
-    def fault(self) -> Message:
+    def faults(self) -> tuple:
         try:
-            return self.__fault
+            return self.__faults
         except AttributeError:
             searchResults = self.bsElement('fault')
-            if len(searchResults) == 1:
-                name = searchResults[0].get("message").split(":")[1]
-                self.__fault = Message.fromName(name, self.parent)
-                return self.__fault
+            if len(searchResults) > 0:
+                faults = list()
+                for each in searchResults:
+                    faults.append(Message.fromName(each.get("message").split(":")[1], self.parent))
+                self.__faults = tuple(faults)
+                return self.__faults
             else:
                 self.log("Operation has no fault message specified", 2)
-                self.__fault = None
-                return self.__fault
+                self.__faults = tuple()
+                return self.__faults

@@ -249,7 +249,6 @@ class Client(Log):
 
         self.log("Getting ready to call the web service", 4)
 
-        self._buildEnvelope()
         self.log("Creating necessary HTTP headers", 5)
         headers = {"SOAPAction": self.port.binding.getSoapAction(self.operation.name),
                    "Content-Type": "text/xml;charset=UTF-8"}
@@ -301,10 +300,14 @@ class Response:
         self.faults = tuple()
         faults = list()
         outputs = list()
-        if self.__client.operation.fault is not None:
-            self.__client.log("Initializing list of faults for this operation", 5)
-            for part in self.__client.operation.fault.parts:
-                faults.append(self.bsResponse(part.type.name)[0])
+        self.__client.log("Initializing list of faults for this operation", 5)
+        for fault in self.__client.operation.faults:
+            if fault is not None:
+                for part in fault.parts:
+                    try:
+                        faults.append(self.bsResponse(part.type.name)[0])
+                    except IndexError:
+                        " Do nothing, as the fault message is not present in the response"
         for part in self.__client.operation.output.parts:
             try:
                 outputs.append(self.bsResponse(part.type.name)[0])
