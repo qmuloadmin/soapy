@@ -417,8 +417,13 @@ class Response:
                 except AttributeError:
                     d[name]["value"] = [d[name]["value"], value]
             else:
-                d.update({name: {"value": value,
-                                 "parent": parent.name}})
+                try:
+                    d.update({name: {"value": value,
+                                     "parent": parent.name}})
+                except AttributeError:
+                    d.update({name: {"value": value,
+                                     "parent": None}})
+
         for each in bsElement.children:
             Response._recursiveExtractSignificantChildren(each, d, bsElement)
 
