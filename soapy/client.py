@@ -1,3 +1,5 @@
+from xml.sax.saxutils import escape, quoteattr
+
 import requests
 from bs4 import BeautifulSoup, Tag
 from requests.auth import HTTPBasicAuth
@@ -50,6 +52,7 @@ class Client(Log):
         self.proxy = ""
         self.proxyUser = ""
         self.proxyPass = ""
+        self.headers = {"Content-Type": "text/xml;charset=UTF-8"}
 
         # Update values with kwargs if provided
 
@@ -229,10 +232,14 @@ class Client(Log):
          :keyword password: The password paired with the username for web service authorization
          :keyword proxyUrl: The URL for a HTTP/HTTPS proxy to be used, if any
          :keyword proxyUser: The Username for basic http auth with the web proxy
-         :keyword proxyPass: The password for basic http auth with the web proxy """
+         :keyword proxyPass: The password for basic http auth with the web proxy
+         :keyword doctors: A list of the plugins to modify (doctor) the client or soap envelope before
+         calling the webservice """
 
         if self.operation is None:
             raise ValueError("Operation must be set before web service can be called")
+
+        doctor_plugins = None
 
         keys = kwargs.keys()
         if "location" in keys:
@@ -246,27 +253,35 @@ class Client(Log):
             self.proxyUser = kwargs["proxyUser"]
         if "proxyPass" in keys:
             self.proxyPass = kwargs["proxyPass"]
+        if "doctors" in keys:
+            doctor_plugins = kwargs["doctors"]
 
         self.log("Getting ready to call the web service", 4)
 
         self.log("Creating necessary HTTP headers", 5)
-        headers = {"SOAPAction": self.port.binding.getSoapAction(self.operation.name),
-                   "Content-Type": "text/xml;charset=UTF-8"}
-        self.log("Set custom headers to {0}".format(headers), 5)
+        self.headers["SOAPAction"] = self.port.binding.getSoapAction(self.operation.name)
+        self.log("Set custom headers to {0}".format(self.headers), 5)
         proxies = self._buildProxyDict()
+
+        if doctor_plugins is not None:
+            self.log("Loading doctors for request", 5)
+            for doctor in doctor_plugins:
+                self.log("Applying doctor plugin {}".format(doctor.__name__), 3)
+                doctor(self, self.requestEnvelope.xml, self.tl)
+
         self.log("Calling web service at {0}".format(self.location), 3)
         try:
             if self.username is None:
                 self.response = requests.post(self.location,
                                               proxies=proxies,
                                               data=self.requestEnvelope.xml,
-                                              headers=headers)
+                                              headers=self.headers)
             else:
                 self.response = requests.post(self.location,
                                               auth=HTTPBasicAuth(self.username, self.password),
                                               proxies=proxies,
                                               data=self.requestEnvelope.xml,
-                                              headers=headers)
+                                              headers=self.headers)
         except ConnectionError as e:
             self.log("Web service connection failed. Check location and try again", 0)
             raise ConnectionError(str(e))
@@ -590,7 +605,7 @@ class InputElement:
     @value.setter
     def value(self, value):
         if self.setable:
-            self.__value = value
+            self.__value = escape(value)
         else:
             raise TypeError("Can't set value of element {0}".format(self.name))
 
@@ -678,7 +693,7 @@ class InputAttribute:
 
     def __init__(self, name, value):
         self.__name = name
-        self.value = value
+        self.value = quoteattr(value)
 
     @property
     def name(self):
