@@ -1,4 +1,4 @@
-from xml.sax.saxutils import escape, quoteattr
+from xml.sax.saxutils import quoteattr
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -88,6 +88,7 @@ class Client(Log):
 
     @property
     def service(self) -> Service:
+        """ The service that the client is interacting with. May be one of a list, or the only service defined"""
         try:
             return self.__service
         except AttributeError:
@@ -108,14 +109,29 @@ class Client(Log):
 
     @property
     def wsdl(self) -> Wsdl:
+        """
+        :return: The WSDL object for this client instance
+        """
         return self.__wsdl
 
     @property
     def port(self) -> Port:
+        """
+        :return: The currently selected or appropriate Port (from wsdl.Model) for the operation of this Client instance
+        """
         return self.__port
 
     @property
     def operation(self) -> Operation:
+        """
+        The operation to be used by this client. Selecting an operation also selects the appropriate Port and Service
+        If there is more than one operation with the same name in multiple services, Client.service must be set first,
+        or the first matching operation will be used
+
+        Operation must be set before the client can be called, or inputs set
+
+        :return: The wsdl.Model.Operation object selected for this client instance, or None if not yet set
+        """
         try:
             return self.__operation
         except AttributeError:
@@ -162,7 +178,11 @@ class Client(Log):
             raise ValueError("Must set operation before schema can be determined")
 
     @property
-    def location(self):
+    def location(self) -> str:
+        """
+        :return: The endpoint, or location, or the web service to be called. This should be fully qualified. Unless
+        manually set, this is from the WSDL service definition
+        """
         if self.operation is None:
             raise ValueError("Must set operation before location can be determined")
         return self.port.location
@@ -174,7 +194,12 @@ class Client(Log):
         self.port.location = new_location
 
     @property
-    def inputs(self):
+    def inputs(self) -> tuple:
+        """
+        inputs is a tuple of iterable soapy.client.InputOptions objects. In most cases, there is only one possible
+        input message for a given operation, in which case the tuple will have only 1 element. To use InputFactory
+        as the source of input, please use Client.input_factory instead (currently unimplementented)
+        """
         try:
             return self.__inputs
         except AttributeError:
@@ -269,14 +294,15 @@ class Client(Log):
                 self.log("Applying doctor plugin {}".format(doctor.__name__), 3)
                 doctor(self, self.requestEnvelope.xml, self.tl)
 
-        self.log("Calling web service at {0}".format(self.location), 3)
         try:
             if self.username is None:
+                self.log("Calling web service at {0}".format(self.location), 3)
                 self.response = requests.post(self.location,
                                               proxies=proxies,
                                               data=self.requestEnvelope.xml,
                                               headers=self.headers)
             else:
+                self.log("Calling web service at {0} using Basic Authentication".format(self.location), 3)
                 self.response = requests.post(self.location,
                                               auth=HTTPBasicAuth(self.username, self.password),
                                               proxies=proxies,
@@ -383,7 +409,7 @@ class Response:
     @property
     def simple_outputs(self) -> dict:
         """
-        Dictionaryf only significant outputs, without parent-child relationships. Makes some assumptions that could
+        Dictionary of only significant outputs, without parent-child relationships. Makes some assumptions that could
         result in losing data in rare cases. With more complicated responses, it is recommended to use outputs
         instead of simpleOutputs.
         :return: dict
@@ -446,8 +472,8 @@ class Response:
 class InputFactory:
     """ TODO: Create this class, to handle the shortcomings in both notation and functionality introduced by the
     convenient, but overly-simple InputOptions class. InputFactory will maintain parent/child heirarchy, but will
-    probably require a different Marshaller class to handle (one that relies on the Factory-generated class for structure
-    instead of the WSDL representation
+    probably require a different Marshaller class to handle (one that relies on the Factory-generated class for
+    structure instead of the WSDL representation)
     """
 
 
@@ -508,7 +534,8 @@ class InputOptions:
         raise KeyError
 
     @property
-    def items(self):
+    def items(self) -> tuple:
+        """ A tuple of InputElements, which may also contain InputAttributes """
         return self.__elements
 
     def simplify(self):
@@ -539,11 +566,11 @@ class InputOptions:
 class InputElement:
 
     """ An individual element of input, has a name, value, attributes and collection. A further
-    abstraction of the TypeElement object in soapy.wsdl.types, InputElements can be interacted with by setting either
+     abstraction of the TypeElement object in soapy.wsdl.types, InputElements can be interacted with by setting either
      their value (instance.value = 'some string') if they are setable (this can be checked with instance.setable), as
      well as their attributes (if present) set via the set item (dict) syntax: instance['attributeName'] = "Value".
      Some items represent more complicated containers of collections of data that can be repeated. In this case you can
-     set individual members using set item syntax on the collection sttribue (e.g. instance.collection["key"] = "value"
+     set individual members using set item syntax on the collection attribute (e.g. instance.collection["key"] = "value"
      To see the current value (if applicable), the type (Collection, Container, etc) and the attributes of this item,
      simply print() it """
 
@@ -597,6 +624,8 @@ class InputElement:
     
     @property
     def value(self) -> str:
+        """ The current value (defaults to None-type) of the Input Element, and the value that will be used in the
+        request envelope """
         try:
             return self.__value
         except AttributeError:
@@ -605,12 +634,15 @@ class InputElement:
     @value.setter
     def value(self, value):
         if self.setable:
-            self.__value = escape(value)
+            if value is not None:
+                self.__value = value
         else:
             raise TypeError("Can't set value of element {0}".format(self.name))
 
     @property
-    def is_collection(self):
+    def is_collection(self) -> bool:
+        """ A collection is a parent-level element that can be repeated. In other words, and element whose value
+        is other elements, but can be duplicated as a set. """
         if not self.setable and self.repeatable:
             return True
         else:
@@ -618,6 +650,39 @@ class InputElement:
 
     @property
     def collection(self) -> dict:
+        """ If the Element is a collection element (see InputElement.is_collection), then this is a dictionary that
+        can be used to set child element values using matching-length iterables.
+        Example:
+            If some element is defined similar to this:
+            <parameter>
+                <name />
+                <value />
+            </parameter>
+
+            And 'parameter' itself can be repeated as a set, then collection lets to set the values of each parameter
+            using iterables in lock-step. The nth value of parameter.name (parameter.collection["name"][n]) will
+            associate with the nth value of the paramter.value (parameter.collection["value"][n]).
+
+            obj.parameter.collection["name"] = list()
+            obj.parameter.collection["value"] = list()
+
+            obj.parameter.collection["name"].append("Foo")
+            obj.parameter.collection["value"].append("Bar"}
+            obj.parameter.collection["name"].append("Baz")
+            obj.parameter.collection["value"].append("Bang"}
+
+            Will render this:
+
+            <parameter>
+                <name>Foo</name>
+                <value>Bar</value>
+            </parameter>
+            <parameter>
+                <name>Baz</name>
+                <value>Bang</value>
+            </parameter>
+        """
+
         if not self.is_collection:
             raise AttributeError("Non-collection element has no attribute collection")
         try:
@@ -628,6 +693,10 @@ class InputElement:
 
     @property
     def inner_xml(self) -> str:
+        """ Represents the xml of the element, including all children, values, etc. If set, then the value of the
+        InputElement will be ignored, as well as any child objects defined in the WSDL. Instead, the value of
+        inner_xml will be used verbatim, in place. """
+
         try:
             return self.__inner_xml
         except AttributeError:
@@ -635,10 +704,6 @@ class InputElement:
     
     @inner_xml.setter
     def inner_xml(self, xml: str):
-
-        """ Setting innerXml will override the marshaller's behavior with rendering the XML
-        from the WSDL and input objects and simply include what you specify, replacing all
-        children elements (if present) and any text content in 'value' attribute """
 
         self.__inner_xml = xml
 
@@ -653,6 +718,11 @@ class InputElement:
 
     @property
     def setable(self) -> bool:
+        """ Indicates whether the object can contain a value, or just contains other elements. If the object can have
+        a value, then you can set it with:
+            InputElement.value = "foo"
+        """
+
         return self.__setable
 
     @property

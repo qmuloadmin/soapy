@@ -1,5 +1,6 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 from copy import deepcopy
+from xml.sax.saxutils import escape
 
 from soapy import Log
 
@@ -21,7 +22,7 @@ class Marshaller(Log, metaclass=ABCMeta):
 
 class Envelope(Marshaller):
 
-    """ Class to build the envelope """
+    """ Class to build the envelope from InputOptions class instance from soapy.client """
 
     __name__ = "marshaller"
 
@@ -122,7 +123,7 @@ class Envelope(Marshaller):
 
 class Header(Marshaller):
 
-    """ Class to build the header """
+    """ Class to build and represent the header of the XML request """
 
     def __init__(self, envelope: Envelope):
 
@@ -150,7 +151,8 @@ class Header(Marshaller):
 
 class Body(Marshaller):
 
-    """ Class to build the Body of the SOAP envelope """
+    """ Class to build the Body of the SOAP envelope based on InputOptions or InputFactory class from soapy.client
+     InputFactory functionality currently not implemented """
 
     def __init__(self, envelope: Envelope):
 
@@ -188,7 +190,8 @@ class Body(Marshaller):
 
 class Element(Marshaller):
 
-    """ Class for representing an Element's properties in terms of SOAP request rendering """
+    """ Class for representing an Element's properties in terms of SOAP request rendering. Heavily relies on interface
+     from InputOptions to build properly. Can't be used with InputFactory class inputs. """
 
     def __init__(self, envelope: Envelope, element, part: int, top_level=True):
 
@@ -311,7 +314,7 @@ class Element(Marshaller):
 
         self.log("Setting value of element {0} to '{1}'"
                  .format(self.definition.name, value), 5)
-        self.__inner_xml = str(value)
+        self.__inner_xml = escape(str(value))
         self.__xml = self.open_tag + self.inner_xml + self.close_tag
 
     def _process_iter_values(self, iter) -> None:
@@ -325,7 +328,7 @@ class Element(Marshaller):
                  .format(iter, self.definition.name), 5)
         for each in iter:
             self.log("Rendering value {0}".format(each), 5)
-            self.__xml = self.open_tag + str(each) + self.close_tag
+            self.__xml = self.open_tag + escape(str(each)) + self.close_tag
 
     def _process_collection_values(self):
 
