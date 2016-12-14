@@ -19,6 +19,8 @@ class Client(Log):
 
     __name__ = "client"
 
+    constructor_kwargs = ("location", "username", "proxyUrl", "proxyUser", "proxyPass")
+
     def __init__(self, wsdl_location: str, tl=0, operation=None, service=None, **kwargs):
         
         """ Provide a wsdl file location url, e.g. http://my.domain.com/some/service?wsdl or
@@ -56,23 +58,22 @@ class Client(Log):
 
         # Update values with kwargs if provided
 
-        keys = kwargs.keys()
-        if "location" in keys:
-            self.location = kwargs["location"]
-        if "username" in keys:
-            self.username = kwargs["username"]
-            self.password = kwargs["password"]
-        if "proxyUrl" in keys:
-            self.proxyUrl = kwargs["proxyUrl"]
-        if "proxyUser" in keys:
-            self.proxyUser = kwargs["proxyUser"]
-        if "proxyPass" in keys:
-            self.proxyPass = kwargs["proxyPass"]
+        for each in kwargs:
+            if each in self.constructor_kwargs:
+                setattr(self, each, kwargs[each])
+            else:
+                raise ValueError("Unexpected keyword argument for {} initializer, {}".format(self.__name__, each))
 
         # Initialize instance of Wsdl using provided information
         self.log("Initializing new wsdl object using url: {0}".format(
                                                       wsdl_location), 4)
-        self.__wsdl = Wsdl(wsdl_location, tl, **kwargs)
+
+        # Initialize the Wsdl for this client with any key word args that are valid for that class
+        self.__wsdl = Wsdl(
+            wsdl_location,
+            tl,
+            **dict((key, value) for key, value in kwargs.items() if key in Wsdl.constructor_kwargs)
+        )
 
         # If either operation or service is set, initialize them to starting values
 
@@ -138,7 +139,7 @@ class Client(Log):
             return None
 
     @operation.setter
-    def operation(self, operationName):
+    def operation(self, operation_name):
         def ops(service):
             for port in service.ports:
                 for operation in port.binding.type.operations:
@@ -147,21 +148,21 @@ class Client(Log):
         if self.service is None:
             for service in self.wsdl.services:
                 for port, operation in ops(service):
-                    if operation.name == operationName:
+                    if operation.name == operation_name:
                         found = True
                         self.__operation = operation
                         self.__port = port
                         self.__service = service
         else:
             for port, operation in ops(self.service):
-                if operation.name == operationName:
+                if operation.name == operation_name:
                     found = True
                     self.__operation = operation
                     self.__port = port
         if not found:
             self.log("Search for operation matching name {0} failed; No such operation"
-                     .format(operationName), 1)
-            raise ValueError("No such operation: {0}".format(operationName))
+                     .format(operation_name), 1)
+            raise ValueError("No such operation: {0}".format(operation_name))
         else:
             self.log("Set client operation to {0}".format(self.operation), 3)
             # Clear any input object, as a new operation will have a new input object
@@ -218,27 +219,27 @@ class Client(Log):
         try:
             return self.__requestEnvelope
         except AttributeError:
-            self._buildEnvelope()
+            self._build_envelope()
             self.log("Rendered request envelope: {0}"
                      .format(self.__requestEnvelope),
                      5)
             return self.__requestEnvelope
 
-    def _buildEnvelope(self):
+    def _build_envelope(self):
         self.log("Initializing marshaller for envelope", 5)
         self.__requestEnvelope = soapy.marshal.Envelope(self)
         self.log("Rendering request envelope", 5)
         self.__requestEnvelope.render()
 
-    def _buildProxyDict(self) -> dict:
+    def _build_proxy_dict(self) -> dict:
         if self.proxy:
-            self._buildFinalProxyUrl()
+            self._build_final_proxy_url()
             return {"http": self.proxyUrl,
                     "https": self.proxyUrl}
         else:
             return {}
 
-    def _buildFinalProxyUrl(self):
+    def _build_final_proxy_url(self):
         self.log("Building proxy Url with provided information", 5)
         self.proxyUrl = self.proxy
         if self.proxyUser is not None:
@@ -284,9 +285,9 @@ class Client(Log):
         self.log("Getting ready to call the web service", 4)
 
         self.log("Creating necessary HTTP headers", 5)
-        self.headers["SOAPAction"] = self.port.binding.getSoapAction(self.operation.name)
+        self.headers["SOAPAction"] = self.port.binding.get_soap_action(self.operation.name)
         self.log("Set custom headers to {0}".format(self.headers), 5)
-        proxies = self._buildProxyDict()
+        proxies = self._build_proxy_dict()
 
         if doctor_plugins is not None:
             self.log("Loading doctors for request", 5)
@@ -392,8 +393,16 @@ class Response:
         return False
 
     @property
+    def is_xml(self) -> bool:
+        return self.isXml()
+
+    @property
     def text(self) -> str:
         return self.__response.text
+
+    @property
+    def content_type(self) -> str:
+        return self.contentType()
 
     @property
     def contentType(self) -> str:
@@ -415,19 +424,19 @@ class Response:
         :return: dict
         """
         try:
-            return self.__simpleOutputs
+            return self.__simple_outputs
         except AttributeError:
             self.__client.log("Starting recursive consolidation of outputs", 4)
             simpleOutputs = dict()
             for output in self.outputs:
                 for child in output.children:
-                    self._recursiveExtractSignificantChildren(child, simpleOutputs)
-            self.__simpleOutputs = simpleOutputs
+                    self._recursive_extract_significant_children(child, simpleOutputs)
+            self.__simple_outputs = simpleOutputs
             self.__client.log("Significant outputs identified: {0}".format(simpleOutputs), 5)
-            return self.__simpleOutputs
+            return self.__simple_outputs
 
     @staticmethod
-    def _recursiveExtractSignificantChildren(bsElement: Tag, d: dict, parent=None) -> None:
+    def _recursive_extract_significant_children(bsElement: Tag, d: dict, parent=None) -> None:
 
         """
         :param bsElement: BeautifulSoup Tag from the response output
@@ -466,7 +475,7 @@ class Response:
                                      "parent": None}})
 
         for each in bsElement.children:
-            Response._recursiveExtractSignificantChildren(each, d, bsElement)
+            Response._recursive_extract_significant_children(each, d, bsElement)
 
 
 class InputFactory:
@@ -505,9 +514,9 @@ class InputOptions:
             attributes = element[0].attributes
             setable = False
             is_repeatable = False
-            if element[0].maxOccurs == "unbounded" or int(element[0].maxOccurs) > 1:
+            if element[0].max_occurs == "unbounded" or int(element[0].max_occurs) > 1:
                 is_repeatable = True
-            if len(element[0].elementChildren) == 0:
+            if len(element[0].element_children) == 0:
                 setable = True
             inputs.append(InputElement(name, parent, attributes, setable, is_repeatable, element[0]))
         self.__elements = tuple(inputs)
@@ -557,8 +566,8 @@ class InputOptions:
             return
 
         l.append((element, parent))
-        for child in element.elementChildren:
-            if child.bsElement is element.bsElement:
+        for child in element.element_children:
+            if child.bs_element is element.bs_element:
                 continue
             InputOptions._recursiveExtractElements(l, child, element)
 

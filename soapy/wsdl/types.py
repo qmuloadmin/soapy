@@ -8,30 +8,30 @@ from soapy.wsdl.element import Element
 
 class TypeBase(Element):
 
-    def update(self, parent, parentUpdates=dict()):
+    def update(self, parent, parent_updates=dict()):
 
         for child in self.children:
             if child is None:
                 continue
             try:
-                parentUpdates.update(self.updateParentElement(parent))
+                parent_updates.update(self.update_parent_element(parent))
             except (TypeError, AttributeError):
                 pass
-            child.update(parent, parentUpdates)
+            child.update(parent, parent_updates)
         if isinstance(self, TypeElement):
-            for key, value in parentUpdates:
-                self.bsElement[key] = value
+            for key, value in parent_updates:
+                self.bs_element[key] = value
 
-    def _processElementChildren(self, parents=list()) -> list:
+    def _process_element_children(self, parents=list()) -> tuple:
 
         # First, process any child updates specified by TypeContainer Children
 
-        childUpdates = dict()
+        child_updates = dict()
         try:
-            cUpdate = self.updateChildElements()
-            if cUpdate is not None:
-                self.log("Found update item(s) for Children: {0}".format(cUpdate), 4)
-                childUpdates.update(cUpdate)
+            c_update = self.update_child_elements()
+            if c_update is not None:
+                self.log("Found update item(s) for Children: {0}".format(c_update), 4)
+                child_updates.update(c_update)
         except AttributeError:
             """ Do nothing, we are in a TypeElement object """
 
@@ -40,32 +40,32 @@ class TypeBase(Element):
         children = list()
         for each in self.children:
             if isinstance(each, TypeElement):
-                if each.bsElement not in parents:
+                if each.bs_element not in parents:
                     children.append(each)
             elif each is None:
                 continue
             else:
-                parents.append(self.bsElement)
-                children.extend(each._processElementChildren(parents))
+                parents.append(self.bs_element)
+                children.extend(each._process_element_children(parents))
 
         # Lastly, apply all child updates to each child element
 
-        if len(childUpdates) > 0:
+        if len(child_updates) > 0:
             self.log("Processing all parent-induced updates for all children", 5)
             for child in children:
-                for attr, value in childUpdates.items():
-                    child.bsElement[attr] = value
-        self.__elementChildren = tuple(children)
+                for attr, value in child_updates.items():
+                    child.bs_element[attr] = value
+        self.__element_children = tuple(children)
         self.log("All TypeElement children identified", 5)
-        return self.__elementChildren
+        return self.__element_children
 
     @property
-    def elementChildren(self) -> tuple:
+    def element_children(self) -> tuple:
         try:
-            return self.__elementChildren
+            return self.__element_children
         except AttributeError:
             self.log("In recursive process of isolating and updating TypeElement children", 5)
-            return self._processElementChildren([self.bsElement])
+            return self._process_element_children([self.bs_element])
 
 
 class TypeContainer(TypeBase):
@@ -73,17 +73,17 @@ class TypeContainer(TypeBase):
     describes other elements. E.g, <sequence> or <complexType> """
 
     @property
-    def parentAttributes(self) -> tuple:
+    def parent_attributes(self) -> tuple:
 
         """ Returns the attributes defined within this tag, and any non-element children """
 
         try:
-            return self.__parentAttributes
+            return self.__parent_attributes
         except AttributeError:
             attrs = list()
             self.log("In recursive process of consolidating attributes. Current object is '{0}' the {1}"
                      .format(self.name, self.tag), 5)
-            attributes = self.bsElement('attribute', recursive=False)
+            attributes = self.bs_element('attribute', recursive=False)
             for attribute in attributes:
                 attr = Attribute(attribute, self.parent)
                 self.log("Created attribute {0}".format(attr), 5)
@@ -94,17 +94,17 @@ class TypeContainer(TypeBase):
                 except AttributeError:
                     """ Do nothing, because this means it's an Element """
 
-            self.__parentAttributes = tuple(attrs)
-            return self.__parentAttributes
+            self.__parent_attributes = tuple(attrs)
+            return self.__parent_attributes
 
-    def updateParentElement(self, parent) -> dict:
+    def update_parent_element(self, parent) -> dict:
         
         """ This occurs when update() is called on 
         a TypeElement object, and takes characteristics defined by TypeContainer
         subclasses and merges them with the parent TypeElement.
         :param parent: The TypeElement parent object to be updated """
 
-    def updateChildElements(self) -> dict:
+    def update_child_elements(self) -> dict:
         
         """ Called during elementChildren property construction. A dict of attribute
         changes that should be made to the child bsElement attributes """
@@ -119,7 +119,7 @@ class TypeElement(TypeBase):
             return self.__attributes
         except:
             self.log("Initializing list of attributes for element {0}".format(self.name), 5)
-            attributes = self.bsElement('attribute', recursive=False)
+            attributes = self.bs_element('attribute', recursive=False)
             for attribute in attributes:
                 attributes.append(Attribute(attribute, self.parent))
             for child in self.children:
@@ -132,24 +132,24 @@ class TypeElement(TypeBase):
 
     @property
     def nillable(self) -> str:
-        return self.bsElement.get("nillable", "false")
+        return self.bs_element.get("nillable", "false")
 
     @property
-    def maxOccurs(self) -> str:
-        return self.bsElement.get("maxOccurs", "1")
+    def max_occurs(self) -> str:
+        return self.bs_element.get("maxOccurs", "1")
 
     @property
-    def minOccurs(self) -> str:
-        return self.bsElement.get("minOccurs", "1")
+    def min_occurs(self) -> str:
+        return self.bs_element.get("minOccurs", "1")
 
     @property
     def form(self) -> str:
-            return self.bsElement.get("form", "qualified")
+            return self.bs_element.get("form", "qualified")
 
     @property
     def type(self) -> str:
         try:
-            return self.bsElement['type']
+            return self.bs_element['type']
         except KeyError:
             return None
 
@@ -163,9 +163,9 @@ class TypeElement(TypeBase):
         except AttributeError:
             children = list(super().children)
             if len(children) == 0:
-                softChild = self.parent.findTypeByName(self.type, self.schema.name)
+                softChild = self.parent.find_type_by_name(self.type, self.schema.name)
                 if softChild is not None:
-                    if self.bsElement.counter < 2:
+                    if self.bs_element.counter < 2:
                         children.append(softChild)
             self.__children = tuple(children)
             return self.__children
@@ -176,20 +176,20 @@ class Attribute(Element):
 
     @property
     def type(self) -> str:
-        return self.bsElement['type'].split(":")[1]
+        return self.bs_element['type'].split(":")[1]
 
     @property
     def ns(self) -> str:
-        return self.bsElement['type'].split(":")[0]
+        return self.bs_element['type'].split(":")[0]
 
     @property
     def default(self) -> str:
-        return self.bsElement.get('default',
-            self.bsElement.get("fixed", None))
+        return self.bs_element.get('default',
+                                   self.bs_element.get("fixed", None))
 
     @property
     def fixed(self) -> bool:
-        return self.bsElement.get('fixed', False)
+        return self.bs_element.get('fixed', False)
 
 
 class ComplexType(TypeContainer):
@@ -215,7 +215,7 @@ class Extension(TypeContainer):
     def children(self) -> tuple:
         children = list(super().children)
         try:
-            child = self.parent.findTypeByName(self.bsElement['base'])
+            child = self.parent.find_type_by_name(self.bs_element['base'])
             children.append(child)
         except KeyError:
             pass
@@ -225,6 +225,6 @@ class Extension(TypeContainer):
 class SequenceType(TypeContainer):
     """ Class representing an ordered sequence of types """
 
-    def updateParentElement(self, parent) -> dict:
+    def update_parent_element(self, parent) -> dict:
         return {"type": parent.type}
 

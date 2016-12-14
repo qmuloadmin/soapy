@@ -15,7 +15,9 @@ class Wsdl(Log):
     """ Class reads in WSDL and forms various child objects held together by this parent class
     Which essentially converts wsdl objects inside 'definitions' into Python native objects """
 
-    __name__= "wsdl"
+    __name__ = "wsdl"
+
+    constructor_kwargs = ("username", "proxyUrl", "proxyUser", "proxyPass")
 
     def __init__(self, wsdl_location, tracelevel=1, **kwargs):
 
@@ -25,17 +27,11 @@ class Wsdl(Log):
 
         super().__init__(tracelevel)
 
-        keys = kwargs.keys()
-
-        if "username" in keys:
-            self.username = kwargs["username"]
-            self.password = kwargs["password"]
-        if "proxyUrl" in keys:
-            self.proxyUrl = kwargs["proxyUrl"]
-        if "proxyUser" in keys:
-            self.proxyUser = kwargs["proxyUser"]
-        if "proxyPass" in keys:
-            self.proxyPass = kwargs["proxyPass"]
+        for each in kwargs:
+            if each in self.constructor_kwargs:
+                setattr(self, each, kwargs[each])
+            else:
+                raise ValueError("Unexpected keyword argument for {} initializer, {}".format(self.__name__, each))
 
         # Determine how to load the WSDL, is it a web resource, or a local file?
 
@@ -46,9 +42,9 @@ class Wsdl(Log):
                     for line in in_file:
                         out_file.write(line)
         elif wsdl_location.startswith("http://"):
-            self._downloadWsdl(wsdl_location)
+            self._download_wsdl(wsdl_location)
         elif wsdl_location.startswith("https://"):
-            self._downloadWsdl(wsdl_location)
+            self._download_wsdl(wsdl_location)
         else:
             self.log("Unsupported protocol for WSDL location: {0}".format(wsdl_location), 0)
             raise ValueError("Unsupported protocol for WSDL location: {0}".format(wsdl_location))
@@ -110,14 +106,14 @@ class Wsdl(Log):
         try:
             return self.__schemas
         except AttributeError:
-            def importSchemas(schema):
+            def import_schemas(schema):
                 imports = schema("import", recursive=False)
                 for each in imports:
                     try:
-                        schemaSoup = self._downloadSchema(each["schemaLocation"])
-                        for addSchema in schemaSoup("schema", recursive=False):
+                        schema_soup = self._download_schema(each["schemaLocation"])
+                        for addSchema in schema_soup("schema", recursive=False):
                             schemas.append(Schema(addSchema, self, None, False))
-                            importSchemas(addSchema)
+                            import_schemas(addSchema)
                     except KeyError:
                         """ Assume (for now) that it's a local schema being imported into this one """
                         # TODO update this logic to be more robust
@@ -126,7 +122,7 @@ class Wsdl(Log):
             schemas = list()
             for schema in types('schema', recursive=False):
                 schemas.append(Schema(schema, self))
-                importSchemas(schema)
+                import_schemas(schema)
 
             self.__schemas = tuple(schemas)
             return self.__schemas
@@ -139,7 +135,7 @@ class Wsdl(Log):
             self.__namespace = Namespace(self.wsdl, self.log)
             return self.__namespace
 
-    def _downloadWsdl(self, url):
+    def _download_wsdl(self, url):
 
         """ Downloads a WSDL from a remote location, attempting to account for proxy,
         then saves it to the proper filename for reading """
@@ -148,7 +144,7 @@ class Wsdl(Log):
         with open(self.wsdlFile, "w") as f:
             f.write(wsdlText)
 
-    def _downloadSchema(self, url) -> Tag:
+    def _download_schema(self, url) -> Tag:
 
         self.log("Importing schema from url: {0}".format(url), 5)
         response = requests.get(url)
@@ -158,57 +154,57 @@ class Wsdl(Log):
     def __str__(self):
         return self.wsdl.prettify()
 
-    def typeFactory(self, element, schema) -> Element:
+    def type_factory(self, element, schema) -> Element:
 
         """ Factory that creates the appropriate EnvClass based on bsElement tag """
 
         try:
-            isLocal = schema.isLocal
+            is_local = schema.is_local
         except AttributeError:
-            isLocal = True
+            is_local = True
 
         if element.name == "element":
-            return TypeElement(element, self, schema, isLocal)
+            return TypeElement(element, self, schema, is_local)
         elif element.name == "complexType":
-            return ComplexType(element, self, schema, isLocal)
+            return ComplexType(element, self, schema, is_local)
         elif element.name == "sequence":
-            return SequenceType(element, self, schema, isLocal)
+            return SequenceType(element, self, schema, is_local)
         elif element.name == "attribute" or element.name == "enumeration":
             return None
         elif element.name == "complexContent":
-            return ComplexContent(element, self, schema, isLocal)
+            return ComplexContent(element, self, schema, is_local)
         elif element.name == "extension" or element.name == "restriction":
-            return Extension(element, self, schema, isLocal)
+            return Extension(element, self, schema, is_local)
         elif element.name == "simpleContent":
-            return SimpleContent(element, self, schema, isLocal)
+            return SimpleContent(element, self, schema, is_local)
         elif element.name == "simpleType":
-            return SimpleType(element, self, schema, isLocal)
+            return SimpleType(element, self, schema, is_local)
         else:
             raise NotImplementedError("XML Element Type <{0}> not yet implemented".format(element.name))
 
-    def _findNamespace(self, ns) -> str:
+    def _find_namespace(self, ns) -> str:
         self.log("Searching for namespace with id '{0}' in all locations".format(ns), 5)
         try:
-            targetNs = self.namespace.resolveNamespace(ns)
-            self.log("Found namespace defined in Definitions: {0}".format(targetNs), 5)
+            target_ns = self.namespace.resolve_namespace(ns)
+            self.log("Found namespace defined in Definitions: {0}".format(target_ns), 5)
         except KeyError:
             for schema in self.schemas:
                 try:
-                    targetNs = schema.namespace.resolveNamespace(ns)
-                    self.log("Found namespace defined in schema: {0}".format(targetNs), 5)
+                    target_ns = schema.namespace.resolve_namespace(ns)
+                    self.log("Found namespace defined in schema: {0}".format(target_ns), 5)
                     break
                 except KeyError:
                     pass
         try:
-            return targetNs
+            return target_ns
         except UnboundLocalError:
             """ There is a bug with bs4, where XML namespaces get consolidated, but ns: components of
             attributes do not get updated with the consolidated value. As a result, we actually can't
             identify -exactly- where this element belongs, as we can't resolve the ns tag. So, we just
-            return None here and all schemas will be searched, using the first match. """
-            return None
+            return empty string here and all schemas will be searched, using the first match. """
+            return ""
 
-    def findTypeByName(self, name, targetNs='') -> Element:
+    def find_type_by_name(self, name, target_ns='') -> Element:
 
         """ Given a name, find the type and schema object
          The name should include the namespace as bs4 provides """
@@ -220,45 +216,45 @@ class Wsdl(Log):
         # If no identifier is provided, then we know it must be in the targetNs provided. If targetNs is not
         # provided, then it's defined within the Wsdl definitions, or in a local schema not in the imported schemas.
 
-        self.log("Searching for type with name {0} in namespace {1}".format(name, targetNs), 5)
+        self.log("Searching for type with name {0} in namespace {1}".format(name, target_ns), 5)
         try:
             ns, name = name.split(":")
         except ValueError:
             ns = None
 
-        if (not targetNs) and ns is not None:
-            targetNs = self._findNamespace(ns)
+        if (not target_ns) and ns is not None:
+            target_ns = self._find_namespace(ns)
 
         # If targetNs and an identifier are provided, then we need to resolve the ns using the schema with the targetNs
         # and see if the identifier equals the targetNs. If not, or if the schema does not contain the definition,
         # we need to look elsewhere.
 
-        elif targetNs and ns is not None:
+        elif target_ns and ns is not None:
             for schema in self.schemas:
-                if schema.name == targetNs:
-                    if not schema.isLocal:
-                        if schema.namespace.resolveNamespace(ns) == targetNs:
+                if schema.name == target_ns:
+                    if not schema.is_local:
+                        if schema.namespace.resolve_namespace(ns) == target_ns:
                             self.log("Remote type with ns of '{0}' confirmed to be defined in parent schema"
                                      .format(ns), 5)
                         else:
-                            targetNs = self._findNamespace(ns)
+                            target_ns = self._find_namespace(ns)
                     else:
-                        targetNs = self._findNamespace(ns)
+                        target_ns = self._find_namespace(ns)
                     break
 
-        self.log("Type resides in namespace of {0}".format(targetNs), 5)
+        self.log("Type resides in namespace of {0}".format(target_ns), 5)
         for schema in self.schemas:
-            if schema.name == targetNs:
+            if schema.name == target_ns:
                 self.log("Found schema matching namespace of {0}:{1}".format(ns, schema.name), 5)
-                tags = schema.bsElement("", {"name": name}, recursive=False)
+                tags = schema.bs_element("", {"name": name}, recursive=False)
                 if len(tags) > 0:
-                    return self.typeFactory(tags[0], schema)
-            elif targetNs is None:
+                    return self.type_factory(tags[0], schema)
+            elif not target_ns:
                 self.log("Unable to identify target namepsace! This is probably due to a bug in underlying modules. "
                          + "First global match will be used", 1)
-                tags = schema.bsElement("", {"name": name}, recursive=False)
+                tags = schema.bs_element("", {"name": name}, recursive=False)
                 if len(tags) > 0:
-                    return self.typeFactory(tags[0], schema)
+                    return self.type_factory(tags[0], schema)
 
         self.log("Unable to find Type based on name {0}".format(name), 2)
         return None

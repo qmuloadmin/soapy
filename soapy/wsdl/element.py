@@ -36,17 +36,18 @@ class Namespace:
             self.__names = tuple(attrs)
             return self.__names
 
-    def resolveNamespace(self, ns) -> str:
+    def resolve_namespace(self, ns) -> str:
         if ns in self.names:
             return self.parent.attrs["xmlns:" + ns]
         else:
             raise KeyError("No namespace defined in this element with name {0}".format(ns))
 
-class Element():
+
+class Element:
 
     """ Base class for handling instantiation and name attribute for any WSDL element """
 
-    def __init__(self, bsElement, wsdl, schema=None, isLocal=True):
+    def __init__(self, bsElement, wsdl, schema=None, is_local=True):
 
         """ Constructor: provide the BeautifulSoup tag object instance for the element and
         the soapy.Wsdl parent instance """
@@ -54,19 +55,19 @@ class Element():
         self.__bsElement = bsElement
         self.__parent = wsdl
         self.__schema = schema
-        self.__isLocal = isLocal
+        self.__is_local = is_local
         self.log("Initialized {0} with name of {1}".format(
             self.__bsElement.name, self.name), 4)
 
         # Below is a provision utilized by TypeElements to prevent recursion on recursive XSD types
         # As bsElements are shared across TypeElements/Elements when they refer to the same element in the WSDL
-        if self.bsElement.counter is None:
-            self.bsElement.counter = 1
+        if self.bs_element.counter is None:
+            self.bs_element.counter = 1
         else:
-            self.bsElement.counter += 1
+            self.bs_element.counter += 1
 
     @classmethod
-    def fromName(cls, name, parent):
+    def from_name(cls, name, parent):
 
         """ Searches the wsdl for an element with matching name and tag, returns appropriate object """
 
@@ -74,7 +75,7 @@ class Element():
         tag = tag[:1].lower() + tag[1:]  # Lowercase the first letter of the class name
         ports = parent.wsdl(tag, recursive=False)
         parent.log("Searching for {1} element with name matching {0}"
-                    .format(name, cls.__name__), 5)
+                   .format(name, cls.__name__), 5)
         for port in ports:
             if port.get('name') == name:
                 return cls(port, parent)
@@ -84,8 +85,8 @@ class Element():
         return self.__schema
 
     @property
-    def isLocal(self):
-        return self.__isLocal
+    def is_local(self):
+        return self.__is_local
 
     @property
     def name(self) -> str:
@@ -96,7 +97,7 @@ class Element():
         return self.__parent
 
     @property
-    def bsElement(self) -> Tag:
+    def bs_element(self) -> Tag:
         return self.__bsElement
 
     @property
@@ -108,7 +109,7 @@ class Element():
         try:
             return self.__namespace
         except AttributeError:
-            self.__namespace = Namespace(self.bsElement, self.log)
+            self.__namespace = Namespace(self.bs_element, self.log)
             return self.__namespace
 
     @property
@@ -117,10 +118,10 @@ class Element():
             return self.__children
         except AttributeError:
             children = list()
-            for each in self.bsElement.children:
+            for each in self.bs_element.children:
                 if not isinstance(each, Tag):
                     continue
-                children.append(self.parent.typeFactory(each, self.schema))
+                children.append(self.parent.type_factory(each, self.schema))
             self.__children = tuple(children)
             return self.__children
 
@@ -131,8 +132,6 @@ class Element():
         self.parent.log(message, tl)
 
 
-# TODO probably need to move Schema to wsdl.__init__
-
 class Schema(Element):
     """ Class that handles schema attributes and namespaces """
 
@@ -141,21 +140,21 @@ class Schema(Element):
 
         """ The name of a Schema is its targetNamespace, which is the closest thing to a QName a schema has """
 
-        return self.bsElement.get('targetNamespace', None)
+        return self.bs_element.get('targetNamespace', None)
 
     @property
-    def elementForm(self) -> str:
+    def element_form(self) -> str:
         
-        return self.bsElement.get("elementFormDefault", "unqualified")
+        return self.bs_element.get("elementFormDefault", "unqualified")
 
     @property
-    def attributeForm(self) -> str:
-        return self.bsElement.get("attributeFormDefault", "unqualified")
+    def attribute_form(self) -> str:
+        return self.bs_element.get("attributeFormDefault", "unqualified")
 
     @property
     def namespace(self) -> Namespace:
         try:
             return self.__namespace
         except AttributeError:
-            self.__namespace = Namespace(self.bsElement, self.log)
+            self.__namespace = Namespace(self.bs_element, self.log)
             return self.__namespace

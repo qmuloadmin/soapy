@@ -6,6 +6,15 @@ import time
 class Log:
     """ Basic trace-level based logging class """
 
+    trace_level_map = {
+        0: "FATAL",
+        1: "ERROR",
+        2: "WARN",
+        3: "NOTICE",
+        4: "INFO",
+        5: "DEBUG"
+    }
+
     def __init__(self, tl):
 
         """ Provide tracelevel of -1 to not log anything """
@@ -15,22 +24,10 @@ class Log:
 
     def log(self, message, tl):
 
-        prefix = str()
+        if self.tl == -1:
+            return
 
-        if self.tl == -1: return
         if tl <= self.tl:
-            if tl == 0:
-                prefix = "FATAL:	"
-            elif tl == 1:
-                prefix = "ERROR:	"
-            elif tl == 2:
-                prefix = "WARN:	"
-            elif tl == 3:
-                prefix = "NOTICE: "
-            elif tl == 4:
-                prefix = "INFO:	"
-            elif tl == 5:
-                prefix = "DEBUG:	"
+            prefix = "{}".format(self.trace_level_map[tl]+":")
             message = message.replace("\n", "")
-            print(prefix + str(time.ctime()) + " | " + str(self.__name__) + ": " + message + " |")
-
+            print("{:7}{} | {}: {}|".format(prefix, time.ctime(), self.__name__, message))

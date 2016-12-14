@@ -1,7 +1,6 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 from copy import deepcopy
 from xml.sax.saxutils import escape
-
 from soapy import Log
 
 
@@ -297,7 +296,7 @@ class Element(Marshaller):
         :return: bool """
 
         if self.inputObj.value is None:
-            if self.definition.minOccurs == "0":
+            if self.definition.min_occurs == "0":
                self.__open_tag = ""
             elif self.definition.nillable == "true":
                 self.__open_tag = self.open_tag.replace('>', ' {0}:nil="true" />\n'.format(self.parent.xml_ns))
@@ -328,7 +327,7 @@ class Element(Marshaller):
                  .format(iter, self.definition.name), 5)
         for each in iter:
             self.log("Rendering value {0}".format(each), 5)
-            self.__xml = self.open_tag + escape(str(each)) + self.close_tag
+            self.__xml += self.open_tag + escape(str(each)) + self.close_tag
 
     def _process_collection_values(self):
 
@@ -356,12 +355,12 @@ class Element(Marshaller):
     def render_open_tag(self):
         # If elementForm for the schema and element is qualified, we need to print ns,
         # otherwise, only if it's the first element
-        if (self.parent.schema.elementForm == "qualified" and self.definition.form == "qualified") or self.__top_level:
+        if (self.parent.schema.element_form == "qualified" and self.definition.form == "qualified") or self.__top_level:
             self.__open_tag = "<{0}:{1}".format(self.tns, self.definition.name.strip())
         else:
             self.__open_tag = "<{0}".format(self.definition.name.strip())
         self.__children = tuple([Element(self.parent, child, self.part, False)
-                                for child in self.definition.elementChildren])
+                                 for child in self.definition.element_children])
         # Call update to perform parent update consolidation from non-Element children
         self.definition.update(self)
         # Render attributes, and then the close brace '>'
@@ -400,7 +399,7 @@ class Element(Marshaller):
 
         # Build the close tag so we can render multiple times if we are an array
 
-        if (self.parent.schema.elementForm == "qualified" and self.definition.form == "qualified") or self.__top_level:
+        if (self.parent.schema.element_form == "qualified" and self.definition.form == "qualified") or self.__top_level:
             self.__close_tag = "</{0}:{1}>\n".format(self.tns, self.definition.name.strip())
         else:
             self.__close_tag = "</{0}>\n".format(self.definition.name.strip())
@@ -422,7 +421,7 @@ class Element(Marshaller):
 
         # If all children are empty and aren't required, process null values to render element correctly, short circuit
 
-        if not self.children_have_values and int(self.definition.minOccurs) == 0:
+        if not self.children_have_values and int(self.definition.min_occurs) == 0:
             if self._process_null_values():
                 return
 
@@ -431,7 +430,7 @@ class Element(Marshaller):
         if self.inputObj.inner_xml is not None:
             self.__inner_xml = self.inputObj.inner_xml
         elif self.inputObj.setable:
-            if self.definition.maxOccurs == "unbounded" or int(self.definition.maxOccurs) > 1:
+            if self.definition.max_occurs == "unbounded" or int(self.definition.max_occurs) > 1:
                 # Determine if a non-string iterable was passed, otherwise default to processing a single value
                 if not isinstance(self.inputObj.value, str):
                     try:

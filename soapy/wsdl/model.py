@@ -13,7 +13,7 @@ class Service(Element):
         except AttributeError:
             self.log("Initializing list of ports defined for service {0}".format(self.name), 5)
             ports = list()
-            for port in self.bsElement('port', recursive=False):
+            for port in self.bs_element('port', recursive=False):
                 ports.append(Port(port, self.parent))
             self.__ports = tuple(ports)
             return self.__ports
@@ -29,7 +29,7 @@ class PortType(Element):
         except AttributeError:
             self.log("Initializing operations for portType {0} from wsdl".format(self.name), 5)
             operations = list()
-            for operation in self.bsElement('operation', recursive=False):
+            for operation in self.bs_element('operation', recursive=False):
                 operations.append(Operation(operation, self.parent))
             self.__operations = tuple(operations)
             return self.__operations
@@ -58,26 +58,26 @@ class Binding(Element):
             return self.__type
         except AttributeError:
             self.log("Initializing portType from binding {0}".format(self.name), 5)
-            (ns, name) = self.bsElement['type'].split(":")
-            self.__type = PortType.fromName(name, self.parent)
+            (ns, name) = self.bs_element['type'].split(":")
+            self.__type = PortType.from_name(name, self.parent)
             return self.__type
 
-    def getSoapAction(self, opName) -> str:
+    def get_soap_action(self, op_name) -> str:
 
         """ Given the name of an operation, return the soap action """
 
-        operations = self.bsElement('operation', recursive=False)
+        operations = self.bs_element('operation', recursive=False)
         for operation in operations:
-            if operation['name'] == opName:
-                soapOp = operation('operation')[0]
+            if operation['name'] == op_name:
+                soap_op = operation('operation')[0]
                 try:
-                    return soapOp['soapAction']
+                    return soap_op['soapAction']
                 except KeyError:
                     self.log("Binding operation does not contain a soapAction element", 2)
                     return None
 
         self.log("Could not find matching operation, {0} in binding {1}".format(
-            opName, self.name), 2)
+            op_name, self.name), 2)
 
 
 class Port(Element):
@@ -89,9 +89,9 @@ class Port(Element):
             return self.__binding
         except AttributeError:
             self.log("Initializing binding attribute for port {0}".format(self.name), 5)
-            binding = self.bsElement['binding']
+            binding = self.bs_element['binding']
             (ns, name) = binding.split(':')
-            self.__binding = Binding.fromName(name, self.parent)
+            self.__binding = Binding.from_name(name, self.parent)
             return self.__binding
 
     @property
@@ -100,7 +100,7 @@ class Port(Element):
             return self.__location
         except AttributeError:
             self.log("Initializing location of Port based on address element", 5)
-            self.__location = self.bsElement('address', recursive=False)[0]['location']
+            self.__location = self.bs_element('address', recursive=False)[0]['location']
             self.log("Initialized location to {0}".format(self.__location), 4)
             return self.__location
 
@@ -117,7 +117,7 @@ class Message(Element):
         except AttributeError:
             self.log("Initializing parts for message {0}".format(self.name), 5)
             parts = list()
-            for part in self.bsElement('part', recursive=False):
+            for part in self.bs_element('part', recursive=False):
                 parts.append(Part(part, self.parent))
             self.__parts = tuple(parts)
             return self.__parts
@@ -129,7 +129,7 @@ class Part(Element):
         try:
             return self.__type
         except AttributeError:
-            self.__type = self.parent.findTypeByName(self.bsElement['element'])
+            self.__type = self.parent.find_type_by_name(self.bs_element['element'])
             return self.__type
 
     @property
@@ -138,7 +138,7 @@ class Part(Element):
 
     @property
     def ns(self) -> str:
-        return self.bsElement['element'].split(':')[0]
+        return self.bs_element['element'].split(':')[0]
 
 
 class Operation(Element):
@@ -149,8 +149,8 @@ class Operation(Element):
         try:
             return self.__input
         except AttributeError:
-            name = self.bsElement('input')[0].get('message').split(":")[1]
-            self.__input = Message.fromName(name, self.parent)
+            name = self.bs_element('input')[0].get('message').split(":")[1]
+            self.__input = Message.from_name(name, self.parent)
             return self.__input
 
     @property
@@ -158,8 +158,8 @@ class Operation(Element):
         try:
             return self.__output
         except AttributeError:
-            name = self.bsElement('output')[0].get('message').split(":")[1]
-            self.__output = Message.fromName(name, self.parent)
+            name = self.bs_element('output')[0].get('message').split(":")[1]
+            self.__output = Message.from_name(name, self.parent)
             return self.__output
 
     @property
@@ -167,11 +167,11 @@ class Operation(Element):
         try:
             return self.__faults
         except AttributeError:
-            searchResults = self.bsElement('fault')
-            if len(searchResults) > 0:
+            search_results = self.bs_element('fault')
+            if len(search_results) > 0:
                 faults = list()
-                for each in searchResults:
-                    faults.append(Message.fromName(each.get("message").split(":")[1], self.parent))
+                for each in search_results:
+                    faults.append(Message.from_name(each.get("message").split(":")[1], self.parent))
                 self.__faults = tuple(faults)
                 return self.__faults
             else:
