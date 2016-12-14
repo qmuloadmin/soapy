@@ -1,6 +1,7 @@
 from abc import ABCMeta, abstractmethod, abstractproperty
 from copy import deepcopy
 from xml.sax.saxutils import escape
+
 from soapy import Log
 
 
@@ -297,7 +298,7 @@ class Element(Marshaller):
 
         if self.inputObj.value is None:
             if self.definition.min_occurs == "0":
-               self.__open_tag = ""
+                self.__open_tag = ""
             elif self.definition.nillable == "true":
                 self.__open_tag = self.open_tag.replace('>', ' {0}:nil="true" />\n'.format(self.parent.xml_ns))
             else:
