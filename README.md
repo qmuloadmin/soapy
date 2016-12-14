@@ -1,3 +1,5 @@
+[![Code Climate](https://codeclimate.com/github/qmuloadmin/soapy/badges/gpa.svg)](https://codeclimate.com/github/qmuloadmin/soapy)
+
 # soapy
 
 Simple, Intuitive SOAP library for consuming web services. Written in Python, for Python.
