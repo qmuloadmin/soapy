@@ -81,6 +81,7 @@ class Envelope(Marshaller):
 
     @property
     def inputs(self):
+        """ The InputOptions from the client instance specifying values to be rendered in this envelope """
         return self.__inputs
 
     @property
@@ -88,8 +89,13 @@ class Envelope(Marshaller):
         return self.__tns_map
 
     @property
-    def xml(self):
+    def xml(self) -> str:
+        """ The full XML SOAP envelope, as a string """
         return self.__xml
+
+    @xml.setter
+    def xml(self, xml):
+        self.__xml = xml
 
     @property
     def body(self):

@@ -267,20 +267,13 @@ class Client(Log):
 
         doctor_plugins = None
 
-        keys = kwargs.keys()
-        if "location" in keys:
-            self.location = kwargs["location"]
-        if "username" in keys:
-            self.username = kwargs["username"]
-            self.password = kwargs["password"]
-        if "proxyUrl" in keys:
-            self.proxy = kwargs["proxyUrl"]
-        if "proxyUser" in keys:
-            self.proxyUser = kwargs["proxyUser"]
-        if "proxyPass" in keys:
-            self.proxyPass = kwargs["proxyPass"]
-        if "doctors" in keys:
-            doctor_plugins = kwargs["doctors"]
+        for key in kwargs:
+            if key in self.constructor_kwargs:
+                setattr(self, key, kwargs[key])
+            elif key == "doctors":
+                doctor_plugins = kwargs[key]
+            else:
+                raise TypeError("Unexpected keyword argument '{}' for __call__".format(key))
 
         self.log("Getting ready to call the web service", 4)
 
