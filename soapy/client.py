@@ -17,8 +17,6 @@ class Client(Log):
     values for a given operation, and sending request. Works with Marshaller to 
     generate SOAP envelope for request """
 
-    __name__ = "client"
-
     constructor_kwargs = ("location", "username", "proxyUrl", "proxyUser", "proxyPass")
 
     def __init__(self, wsdl_location: str, tl=0, operation=None, service=None, **kwargs):
@@ -62,7 +60,10 @@ class Client(Log):
             if each in self.constructor_kwargs:
                 setattr(self, each, kwargs[each])
             else:
-                raise ValueError("Unexpected keyword argument for {} initializer, {}".format(self.__name__, each))
+                raise ValueError("Unexpected keyword argument for {} initializer, {}".format(
+                    self.__class__.__name__,
+                    each
+                ))
 
         # Initialize instance of Wsdl using provided information
         self.log("Initializing new wsdl object using url: {0}".format(
@@ -285,8 +286,8 @@ class Client(Log):
         if doctor_plugins is not None:
             self.log("Loading doctors for request", 5)
             for doctor in doctor_plugins:
-                self.log("Applying doctor plugin {}".format(doctor.__name__), 3)
-                doctor(self, self.requestEnvelope.xml, self.tl)
+                self.log("Applying doctor plugin {}".format(doctor.__class__.__name__), 3)
+                self.requestEnvelope.xml = doctor(self, self.requestEnvelope.xml, self.tl)
 
         try:
             if self.username is None:
@@ -315,8 +316,6 @@ class Response:
     """ Object describes the web service response, attempts to provide simple status indication and messages,
         and provides someone intelligent methods for interacting with the response.
         Response encapsulates both "output" messages and "fault" messages. """
-
-    # TODO add helper property and method(s) for fault messages
 
     def __init__(self, response, client: Client):
         """
@@ -387,7 +386,7 @@ class Response:
 
     @property
     def is_xml(self) -> bool:
-        return self.isXml()
+        return self.isXml
 
     @property
     def text(self) -> str:
@@ -395,7 +394,7 @@ class Response:
 
     @property
     def content_type(self) -> str:
-        return self.contentType()
+        return self.contentType
 
     @property
     def contentType(self) -> str:
@@ -413,20 +412,39 @@ class Response:
         """
         Dictionary of only significant outputs, without parent-child relationships. Makes some assumptions that could
         result in losing data in rare cases. With more complicated responses, it is recommended to use outputs
-        instead of simpleOutputs.
+        instead of simple_outputs.
         :return: dict
         """
         try:
             return self.__simple_outputs
         except AttributeError:
             self.__client.log("Starting recursive consolidation of outputs", 4)
-            simpleOutputs = dict()
+            simple_outputs = dict()
             for output in self.outputs:
                 for child in output.children:
-                    self._recursive_extract_significant_children(child, simpleOutputs)
-            self.__simple_outputs = simpleOutputs
-            self.__client.log("Significant outputs identified: {0}".format(simpleOutputs), 5)
+                    self._recursive_extract_significant_children(child, simple_outputs)
+            self.__simple_outputs = simple_outputs
+            self.__client.log("Significant outputs identified: {0}".format(simple_outputs), 5)
             return self.__simple_outputs
+
+    @property
+    def simple_faults(self) -> dict:
+        """
+        Dictionary of only significant faults, excluding parent-child relationships, structure, etc
+        :return: dict
+        """
+
+        try:
+            return self.__simple_faults
+        except AttributeError:
+            self.__client.log("Starting recursive consolidation of faults", 4)
+            simple_faults = dict()
+            for fault in self.faults:
+                for child in fault.children:
+                    self._recursive_extract_significant_children(child, simple_faults)
+            self.__simple_faults = simple_faults
+            self.__client.log("Significant faults identified: {}".format(simple_faults), 5)
+            return self.__simple_faults
 
     @staticmethod
     def _recursive_extract_significant_children(bsElement: Tag, d: dict, parent=None) -> None:

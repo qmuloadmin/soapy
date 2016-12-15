@@ -24,8 +24,6 @@ class Envelope(Marshaller):
 
     """ Class to build the envelope from InputOptions class instance from soapy.client """
 
-    __name__ = "marshaller"
-
     def __init__(self, client):
         super().__init__(client.tl)
         self.__parts = client.operation.input.parts

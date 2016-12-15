@@ -30,4 +30,8 @@ class Log:
         if tl <= self.tl:
             prefix = "{}".format(self.trace_level_map[tl]+":")
             message = message.replace("\n", "")
-            print("{:7}{} | {}: {}|".format(prefix, time.ctime(), self.__name__, message))
+            print("{:7}{} | {}: {}|".format(
+                prefix,
+                time.ctime(),
+                self.__class__.__name__.lower(),
+                message))
