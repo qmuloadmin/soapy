@@ -311,6 +311,8 @@ class Element(Marshaller):
             self.__xml = self.open_tag
             self.log("Processed null value for element {0}".format(self.definition.name), 5)
             return True
+        elif not self.inputObj.setable and not self.children_have_values:
+            return True
         return False
 
     def _process_single_value(self, value) -> None:
@@ -428,7 +430,6 @@ class Element(Marshaller):
         # If all children are empty and aren't required, process null values to render element correctly, short circuit
 
         if not self.children_have_values and int(self.definition.min_occurs) == 0:
-            print("Checking {}".format(self.inputObj.name))
             if self._process_null_values():
                 return
 
