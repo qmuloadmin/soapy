@@ -3,6 +3,7 @@ from copy import deepcopy
 from xml.sax.saxutils import escape
 
 from soapy import Log
+from soapy.inputs import Repeatable
 
 
 class Marshaller(Log, metaclass=ABCMeta):
@@ -233,7 +234,7 @@ class Element(Marshaller):
         # Associate input obj from client with this Element rendering
 
         self.__inputObj = None
-        for obj in self.parent.inputs[self.part]:
+        for obj in self.parent.inputs[self.part].items:
             if obj.ref is self.definition:
                 self.__inputObj = obj
                 break
@@ -287,7 +288,7 @@ class Element(Marshaller):
         :return: bool
         """
 
-        if self.inputObj.value is not None:
+        if self.inputObj.setable and self.inputObj.value is not None:
             return True
         for each in self.children:
             if each.children_significant() is True:
@@ -300,7 +301,7 @@ class Element(Marshaller):
         otherwise, return False and do nothing
         :return: bool """
 
-        if self.inputObj.value is None:
+        if self.inputObj.setable and self.inputObj.value is None:
             if self.definition.min_occurs == "0":
                 self.__open_tag = ""
             elif self.definition.nillable == "true":
@@ -427,6 +428,7 @@ class Element(Marshaller):
         # If all children are empty and aren't required, process null values to render element correctly, short circuit
 
         if not self.children_have_values and int(self.definition.min_occurs) == 0:
+            print("Checking {}".format(self.inputObj.name))
             if self._process_null_values():
                 return
 
@@ -435,15 +437,8 @@ class Element(Marshaller):
         if self.inputObj.inner_xml is not None:
             self.__inner_xml = self.inputObj.inner_xml
         elif self.inputObj.setable:
-            if self.definition.max_occurs == "unbounded" or int(self.definition.max_occurs) > 1:
-                # Determine if a non-string iterable was passed, otherwise default to processing a single value
-                if not isinstance(self.inputObj.value, str):
-                    try:
-                        self._process_iter_values(self.inputObj.value)
-                    except TypeError:
-                        self._process_single_value(self.inputObj.value)
-                else:
-                    self._process_single_value(self.inputObj.value)
+            if isinstance(self.inputObj, Repeatable):
+                self._process_iter_values(self.inputObj.values)
             else:
                 # Only a single value should have been provided (will get type-casted to string)
                 self._process_single_value(self.inputObj.value)
