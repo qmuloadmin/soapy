@@ -14,16 +14,22 @@ class Wsdl(Log):
     """ Class reads in WSDL and forms various child objects held together by this parent class
     Which essentially converts wsdl objects inside 'definitions' into Python native objects """
 
-    constructor_kwargs = ("username", "proxyUrl", "proxyUser", "proxyPass")
+    constructor_kwargs = ("proxy_url", "proxy_user", "proxy_pass", "secure")
 
     def __init__(self, wsdl_location, tracelevel=1, **kwargs):
 
         """ wsdl_location is FQDN and URL of WSDL, must include protocol, e.g. http/file
         If caching behavior is desired (to load native python objects instead of parsing
-        the XML each time, then provide keyword args of cache=FH where FH is a file handle """
+        the XML each time, then provide keyword args of cache=FH where FH is a file handle
+
+        :keyword proxyUrl: The URL of the proxy to use, including port, if needed to retrieve WSDL
+        :keyword proxyUser: The username, if any, to authenticate to the proxy with
+        :keyword proxyPass: The password paired with the username for proxy authentication
+        :keyword secure: A boolean flag, defaults to True, if SSL verification should be performed
+        """
 
         super().__init__(tracelevel)
-
+        self.secure = True
         for each in kwargs:
             if each in self.constructor_kwargs:
                 setattr(self, each, kwargs[each])
@@ -137,14 +143,14 @@ class Wsdl(Log):
         """ Downloads a WSDL from a remote location, attempting to account for proxy,
         then saves it to the proper filename for reading """
 
-        wsdlText = requests.get(url).text
+        wsdlText = requests.get(url, verify=self.secure).text
         with open(self.wsdlFile, "w") as f:
             f.write(wsdlText)
 
     def _download_schema(self, url) -> Tag:
 
         self.log("Importing schema from url: {0}".format(url), 5)
-        response = requests.get(url)
+        response = requests.get(url, verify=self.secure)
         schema = BeautifulSoup(response.text, "xml")
         return schema
 

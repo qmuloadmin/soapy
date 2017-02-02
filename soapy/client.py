@@ -1,5 +1,3 @@
-from xml.sax.saxutils import quoteattr
-
 import requests
 from bs4 import BeautifulSoup, Tag
 from requests.auth import HTTPBasicAuth
@@ -7,6 +5,7 @@ from requests.exceptions import ConnectionError
 
 import soapy.marshal
 from soapy import Log
+from soapy.inputs import Factory as InputFactory
 from soapy.wsdl import Wsdl
 from soapy.wsdl.model import *
 
@@ -17,13 +16,21 @@ class Client(Log):
     values for a given operation, and sending request. Works with Marshaller to 
     generate SOAP envelope for request """
 
-    constructor_kwargs = ("location", "username", "proxyUrl", "proxyUser", "proxyPass")
+    constructor_kwargs = ("location", "username", "password", "proxy_url", "proxy_user", "proxy_pass", "secure")
 
     def __init__(self, wsdl_location: str, tl=0, operation=None, service=None, **kwargs):
         
         """ Provide a wsdl file location url, e.g. http://my.domain.com/some/service?wsdl or
         file:///full/path/to.wsdl, a tracelevel for logging (0-5), and optionally pass in
         a Service name, and an Operation.
+
+        :keyword location: The location (URL) of the web service. Overrides the location from the WSDL for the operation
+        :keyword username: The username to authenticate to the web service, if needed
+        :keyword password: The password to authenticate to the web service, if needed
+        :keyword proxy_url: The URL of the proxy to use, including port, if needed to retrieve WSDL
+        :keyword proxy_user: The username, if any, to authenticate to the proxy with
+        :keyword proxy_pass: The password paired with the username for proxy authentication
+        :keyword secure: A boolean flag, defaults to True, if SSL verification should be performed
 
         Tracelevels:
 
@@ -50,8 +57,8 @@ class Client(Log):
         self.username = None
         self.password = None
         self.proxy = ""
-        self.proxyUser = ""
-        self.proxyPass = ""
+        self.proxy_user = ""
+        self.proxy_pass = ""
         self.headers = {"Content-Type": "text/xml;charset=UTF-8"}
 
         # Update values with kwargs if provided
@@ -209,14 +216,14 @@ class Client(Log):
                 inputs = list()
                 self.log("Building list of inputs for operation {0}".format(self.operation.name), 4)
                 for each in self.operation.input.parts:
-                    inputs.append(InputOptions(each.type))
+                    inputs.append(InputFactory(each.type, self.tl))
                 self.__inputs = tuple(inputs)
                 return self.__inputs
             except AttributeError:
                 raise RuntimeError("Must set operation before inputs can be determined")
 
     @property
-    def requestEnvelope(self):
+    def request_envelope(self):
         try:
             return self.__requestEnvelope
         except AttributeError:
@@ -233,22 +240,21 @@ class Client(Log):
         self.__requestEnvelope.render()
 
     def _build_proxy_dict(self) -> dict:
-        if self.proxy:
+        if self.proxy_url:
             self._build_final_proxy_url()
-            return {"http": self.proxyUrl,
-                    "https": self.proxyUrl}
+            return {"http": self.proxy_url,
+                    "https": self.proxy_url}
         else:
             return {}
 
     def _build_final_proxy_url(self):
         self.log("Building proxy Url with provided information", 5)
-        self.proxyUrl = self.proxy
-        if self.proxyUser is not None:
+        if self.proxy_user is not None:
             import re
-            self.proxyUrl = re.sub(r"^(https?://)([^@]+)$",
+            self.proxy_url = re.sub(r"^(https?://)([^@]+)$",
                                    r"\1{0}:{1}@\2"
-                                   .format(self.proxyUser, self.proxyPass),
-                                   self.proxy)
+                                    .format(self.proxy_user, self.proxy_pass),
+                                    self.proxy_url)
             self.log("Set proxy to '{0}'".format(self.proxy), 4)
 
     def __call__(self, **kwargs):
@@ -257,9 +263,9 @@ class Client(Log):
          :keyword location: The URL/Location of the web service. Will override location specified in WSDL
          :keyword username: The username for use in auth with the web service
          :keyword password: The password paired with the username for web service authorization
-         :keyword proxyUrl: The URL for a HTTP/HTTPS proxy to be used, if any
-         :keyword proxyUser: The Username for basic http auth with the web proxy
-         :keyword proxyPass: The password for basic http auth with the web proxy
+         :keyword proxy_url: The URL for a HTTP/HTTPS proxy to be used, if any
+         :keyword proxy_user: The Username for basic http auth with the web proxy
+         :keyword proxy_pass: The password for basic http auth with the web proxy
          :keyword doctors: A list of the plugins to modify (doctor) the client or soap envelope before
          calling the webservice """
 
@@ -274,7 +280,7 @@ class Client(Log):
             elif key == "doctors":
                 doctor_plugins = kwargs[key]
             else:
-                raise TypeError("Unexpected keyword argument '{}' for __call__".format(key))
+                raise ValueError("Unexpected keyword argument '{}' for __call__".format(key))
 
         self.log("Getting ready to call the web service", 4)
 
@@ -287,21 +293,21 @@ class Client(Log):
             self.log("Loading doctors for request", 5)
             for doctor in doctor_plugins:
                 self.log("Applying doctor plugin {}".format(doctor.__class__.__name__), 3)
-                self.requestEnvelope.xml = doctor(self, self.requestEnvelope.xml, self.tl)
+                self.request_envelope.xml = doctor(self, self.request_envelope.xml, self.tl)
 
         try:
             if self.username is None:
                 self.log("Calling web service at {0}".format(self.location), 3)
                 self.response = requests.post(self.location,
                                               proxies=proxies,
-                                              data=self.requestEnvelope.xml,
+                                              data=self.request_envelope.xml,
                                               headers=self.headers)
             else:
                 self.log("Calling web service at {0} using Basic Authentication".format(self.location), 3)
                 self.response = requests.post(self.location,
                                               auth=HTTPBasicAuth(self.username, self.password),
                                               proxies=proxies,
-                                              data=self.requestEnvelope.xml,
+                                              data=self.request_envelope.xml,
                                               headers=self.headers)
         except ConnectionError as e:
             self.log("Web service connection failed. Check location and try again", 0)
@@ -487,307 +493,3 @@ class Response:
 
         for each in bsElement.children:
             Response._recursive_extract_significant_children(each, d, bsElement)
-
-
-class InputFactory:
-    """ TODO: Create this class, to handle the shortcomings in both notation and functionality introduced by the
-    convenient, but overly-simple InputOptions class. InputFactory will maintain parent/child heirarchy, but will
-    probably require a different Marshaller class to handle (one that relies on the Factory-generated class for
-    structure instead of the WSDL representation)
-    """
-
-
-class InputOptions:
-    
-    """ Describes possible inputs to the web service in a (somewhat) pythonic fashion. InputOptions over-simplifies WSDL
-     messages and elements to create a flattened class in order to avoid class factories. To see possible inputs, simply
-     print() this object. Individual input elements can be referenced either by index, or as a named attribute. Numeric
-     index-based lookup is supported because it is possible for two values to have the same name, and so referencing
-     the attribute by name may not be possible. Although, in such cases, or when dealing with more-complicated Web
-     Services, it is probably better to use InputFactory instead"""
-
-    def __init__(self, element):
-        
-        """ Walks the object tree to find all elements and creates a flat index of each possible input element and
-         its attributes """
-
-        elements = list()
-        inputs = list()
-        InputOptions._recursiveExtractElements(elements, element)
-        names = []
-        duplicates = False
-        for element in elements:
-            name = element[0].name
-            if name in names:
-                duplicates = True
-            names.append(name)
-            parent = element[1]
-            attributes = element[0].attributes
-            setable = False
-            is_repeatable = False
-            if element[0].max_occurs == "unbounded" or int(element[0].max_occurs) > 1:
-                is_repeatable = True
-            if len(element[0].element_children) == 0:
-                setable = True
-            inputs.append(InputElement(name, parent, attributes, setable, is_repeatable, element[0]))
-        self.__elements = tuple(inputs)
-        if not duplicates:
-            self.simplify()
-
-    def __getattr__(self, item):
-        return self.__getitem__(item)
-
-    def __str__(self):
-        s = ""
-        i = 0
-        for each in self.__elements:
-            s += "[{0}]: {1}".format(i, each)
-            i += 1
-        return s
-
-    def __getitem__(self, key):
-        if isinstance(key, int):
-            return self.items[key]
-        for each in self.items:
-            if each.name == key:
-                return each
-        raise KeyError
-
-    @property
-    def items(self) -> tuple:
-        """ A tuple of InputElements, which may also contain InputAttributes """
-        return self.__elements
-
-    def simplify(self):
-        """
-        Simplify is called automatically by InputOptions after construction if there are no repeated input key names.
-        It can be called manually to force simplification of input names, but this is usually not desirable.
-        :return: None
-        """
-        for each in self.items:
-            each.simplify()
-
-    @staticmethod
-    def _recursiveExtractElements(l: list, element, parent=None):
-        
-        """ Recursively iterates over soapy.wsdl.types Objects and extracts the 
-        TypeElement objects, as they are what actually represent input options """
-
-        if element is None:
-            return
-
-        l.append((element, parent))
-        for child in element.element_children:
-            if child.bs_element is element.bs_element:
-                continue
-            InputOptions._recursiveExtractElements(l, child, element)
-
-
-class InputElement:
-
-    """ An individual element of input, has a name, value, attributes and collection. A further
-     abstraction of the TypeElement object in soapy.wsdl.types, InputElements can be interacted with by setting either
-     their value (instance.value = 'some string') if they are setable (this can be checked with instance.setable), as
-     well as their attributes (if present) set via the set item (dict) syntax: instance['attributeName'] = "Value".
-     Some items represent more complicated containers of collections of data that can be repeated. In this case you can
-     set individual members using set item syntax on the collection attribute (e.g. instance.collection["key"] = "value"
-     To see the current value (if applicable), the type (Collection, Container, etc) and the attributes of this item,
-     simply print() it """
-
-    def __init__(self, name, parent, attributes, setable, repeatable,  ref):
-        self.__parent = parent
-        if self.parent is not None:
-            self.__name = self.parent.name + "_" + name
-        else:
-            self.__name = name
-        self.__setable = setable
-        self.repeatable = repeatable
-        self.__ref = ref
-        attrs = list()
-        for attr in attributes:
-            attrs.append(InputAttribute(attr.name, attr.default))
-        self.__attrs = tuple(attrs)
-
-    @property
-    def parent(self):
-        return self.__parent
-
-    def __str__(self):
-        s = "'{0}'".format(self.name)
-        if self.inner_xml is not None:
-            s += " : " + str(self.inner_xml)
-        elif self.setable:
-            if self.repeatable:
-                if self.value is None:
-                    s += " = ({0},)".format(self.value)
-                else:
-                    s += " = " + str(self.value)
-            else:
-                s += " = " + str(self.value)
-        elif self.is_collection:
-            s += "(Collection) = {0}".format(self.collection)
-        else:
-            properties = []
-            s += " ("
-            if len(self.attributes) > 0:
-                properties.append("Attributes")
-            if len(properties) == 0:
-                properties.append("Container Only")
-            s += ", ".join(properties) + ")"
-        s += "\n"
-        for each in self.__attrs:
-            s += "    {0}\n".format(each)
-        return s
-
-    def keys(self):
-        return tuple([attr.name for attr in self.attributes])
-    
-    @property
-    def value(self) -> str:
-        """ The current value (defaults to None-type) of the Input Element, and the value that will be used in the
-        request envelope """
-        try:
-            return self.__value
-        except AttributeError:
-            return None
-
-    @value.setter
-    def value(self, value):
-        if self.setable:
-            if value is not None:
-                self.__value = value
-        else:
-            raise TypeError("Can't set value of element {0}".format(self.name))
-
-    @property
-    def is_collection(self) -> bool:
-        """ A collection is a parent-level element that can be repeated. In other words, and element whose value
-        is other elements, but can be duplicated as a set. """
-        if not self.setable and self.repeatable:
-            return True
-        else:
-            return False
-
-    @property
-    def collection(self) -> dict:
-        """ If the Element is a collection element (see InputElement.is_collection), then this is a dictionary that
-        can be used to set child element values using matching-length iterables.
-        Example:
-            If some element is defined similar to this:
-            <parameter>
-                <name />
-                <value />
-            </parameter>
-
-            And 'parameter' itself can be repeated as a set, then collection lets to set the values of each parameter
-            using iterables in lock-step. The nth value of parameter.name (parameter.collection["name"][n]) will
-            associate with the nth value of the paramter.value (parameter.collection["value"][n]).
-
-            obj.parameter.collection["name"] = list()
-            obj.parameter.collection["value"] = list()
-
-            obj.parameter.collection["name"].append("Foo")
-            obj.parameter.collection["value"].append("Bar"}
-            obj.parameter.collection["name"].append("Baz")
-            obj.parameter.collection["value"].append("Bang"}
-
-            Will render this:
-
-            <parameter>
-                <name>Foo</name>
-                <value>Bar</value>
-            </parameter>
-            <parameter>
-                <name>Baz</name>
-                <value>Bang</value>
-            </parameter>
-        """
-
-        if not self.is_collection:
-            raise AttributeError("Non-collection element has no attribute collection")
-        try:
-            return self.__collection
-        except AttributeError:
-            self.__collection = dict()
-            return self.__collection
-
-    @property
-    def inner_xml(self) -> str:
-        """ Represents the xml of the element, including all children, values, etc. If set, then the value of the
-        InputElement will be ignored, as well as any child objects defined in the WSDL. Instead, the value of
-        inner_xml will be used verbatim, in place. """
-
-        try:
-            return self.__inner_xml
-        except AttributeError:
-            return None
-    
-    @inner_xml.setter
-    def inner_xml(self, xml: str):
-
-        self.__inner_xml = xml
-
-    @property
-    def attributes(self) -> tuple:
-        # Not memo-ized because contents of tuple are mutable
-        return self.__attrs
-
-    @property
-    def name(self) -> str:
-        return self.__name
-
-    @property
-    def setable(self) -> bool:
-        """ Indicates whether the object can contain a value, or just contains other elements. If the object can have
-        a value, then you can set it with:
-            InputElement.value = "foo"
-        """
-
-        return self.__setable
-
-    @property
-    def ref(self):
-        return self.__ref
-
-    def simplify(self):
-        """
-        Simplify is called automatically by InputOptions after construction if there are no repeated input key names.
-        It can be called manually to force simplification of input names, but this is usually not desirable. Elements
-        that are collection children are not simplified to improve clarity. A collection is a parent-level element
-        that is repeatable (maxOccurs greater than 1)
-        :return: None
-        """
-        if self.parent is not None:
-            self.__name = self.name.replace(self.parent.name+"_", "")
-
-    def __setitem__(self, key, value):
-        found = False
-        for each in self.attributes:
-            if each.name == key:
-                each.value = value
-                found = True
-        if not found:
-            raise KeyError
-
-    def __getitem__(self, key):
-        for each in self.attributes:
-            if each.name == key:
-                return each
-        raise KeyError
-
-
-class InputAttribute:
-    
-    """ An individual attribute of an input Element. A further abstraction of the
-    Attribute object in soapy.wsdl.types """
-
-    def __init__(self, name, value):
-        self.__name = name
-        self.value = quoteattr(value)
-
-    @property
-    def name(self):
-        return self.__name
-
-    def __str__(self):
-        return "['"+self.name+"'] = " + str(self.value)
