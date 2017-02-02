@@ -14,7 +14,7 @@ class Wsdl(Log):
     """ Class reads in WSDL and forms various child objects held together by this parent class
     Which essentially converts wsdl objects inside 'definitions' into Python native objects """
 
-    constructor_kwargs = ("proxyUrl", "proxyUser", "proxyPass", "secure")
+    constructor_kwargs = ("proxy_url", "proxy_user", "proxy_pass", "secure")
 
     def __init__(self, wsdl_location, tracelevel=1, **kwargs):
 

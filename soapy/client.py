@@ -16,7 +16,7 @@ class Client(Log):
     values for a given operation, and sending request. Works with Marshaller to 
     generate SOAP envelope for request """
 
-    constructor_kwargs = ("location", "username", "password", "proxyUrl", "proxyUser", "proxyPass", "secure")
+    constructor_kwargs = ("location", "username", "password", "proxy_url", "proxy_user", "proxy_pass", "secure")
 
     def __init__(self, wsdl_location: str, tl=0, operation=None, service=None, **kwargs):
         
@@ -27,9 +27,9 @@ class Client(Log):
         :keyword location: The location (URL) of the web service. Overrides the location from the WSDL for the operation
         :keyword username: The username to authenticate to the web service, if needed
         :keyword password: The password to authenticate to the web service, if needed
-        :keyword proxyUrl: The URL of the proxy to use, including port, if needed to retrieve WSDL
-        :keyword proxyUser: The username, if any, to authenticate to the proxy with
-        :keyword proxyPass: The password paired with the username for proxy authentication
+        :keyword proxy_url: The URL of the proxy to use, including port, if needed to retrieve WSDL
+        :keyword proxy_user: The username, if any, to authenticate to the proxy with
+        :keyword proxy_pass: The password paired with the username for proxy authentication
         :keyword secure: A boolean flag, defaults to True, if SSL verification should be performed
 
         Tracelevels:
@@ -57,8 +57,8 @@ class Client(Log):
         self.username = None
         self.password = None
         self.proxy = ""
-        self.proxyUser = ""
-        self.proxyPass = ""
+        self.proxy_user = ""
+        self.proxy_pass = ""
         self.headers = {"Content-Type": "text/xml;charset=UTF-8"}
 
         # Update values with kwargs if provided
@@ -240,22 +240,21 @@ class Client(Log):
         self.__requestEnvelope.render()
 
     def _build_proxy_dict(self) -> dict:
-        if self.proxy:
+        if self.proxy_url:
             self._build_final_proxy_url()
-            return {"http": self.proxyUrl,
-                    "https": self.proxyUrl}
+            return {"http": self.proxy_url,
+                    "https": self.proxy_url}
         else:
             return {}
 
     def _build_final_proxy_url(self):
         self.log("Building proxy Url with provided information", 5)
-        self.proxyUrl = self.proxy
-        if self.proxyUser is not None:
+        if self.proxy_user is not None:
             import re
-            self.proxyUrl = re.sub(r"^(https?://)([^@]+)$",
+            self.proxy_url = re.sub(r"^(https?://)([^@]+)$",
                                    r"\1{0}:{1}@\2"
-                                   .format(self.proxyUser, self.proxyPass),
-                                   self.proxy)
+                                    .format(self.proxy_user, self.proxy_pass),
+                                    self.proxy_url)
             self.log("Set proxy to '{0}'".format(self.proxy), 4)
 
     def __call__(self, **kwargs):
@@ -264,9 +263,9 @@ class Client(Log):
          :keyword location: The URL/Location of the web service. Will override location specified in WSDL
          :keyword username: The username for use in auth with the web service
          :keyword password: The password paired with the username for web service authorization
-         :keyword proxyUrl: The URL for a HTTP/HTTPS proxy to be used, if any
-         :keyword proxyUser: The Username for basic http auth with the web proxy
-         :keyword proxyPass: The password for basic http auth with the web proxy
+         :keyword proxy_url: The URL for a HTTP/HTTPS proxy to be used, if any
+         :keyword proxy_user: The Username for basic http auth with the web proxy
+         :keyword proxy_pass: The password for basic http auth with the web proxy
          :keyword doctors: A list of the plugins to modify (doctor) the client or soap envelope before
          calling the webservice """
 
