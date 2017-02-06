@@ -48,7 +48,7 @@ class Binding(Element):
         super().__init__(bsElement, parent)
         # Validate that the binding style is 'document'
         soapBinding = bsElement('binding', recursive=False)[0]
-        if not soapBinding['style'] == "document":
+        if not soapBinding.get('style', "document") == "document":
             self.log("Binding style not set to document. SoaPy can't handle non-document styles", 0)
             raise TypeError("Binding style not set to document. SoaPy can't handle non-document styles")
 
