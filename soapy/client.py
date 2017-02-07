@@ -328,7 +328,7 @@ class Client(Log):
         self.log("Getting ready to call the web service", 4)
 
         self.log("Creating necessary HTTP headers", 5)
-        self.headers["SOAPAction"] = self.port.binding.get_soap_action(self.operation.name)
+        self.headers["SOAPAction"] = '"' + self.port.binding.get_soap_action(self.operation.name) + '"'
         self.log("Set custom headers to {0}".format(self.headers), 5)
         proxies = self._build_proxy_dict()
 
