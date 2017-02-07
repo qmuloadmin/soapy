@@ -313,15 +313,25 @@ class Collection(Repeatable, Container):
         classes can be updated to iterate through children elements properly, we can remove this method
         """
 
-        for container in self.elements:
-            for child in container.children:
+        def walk_container(co):
+            for child in co.children:
+                if isinstance(child, Container):
+                    walk_container(child)
+                elif isinstance(child, Repeatable):
+                    try:
+                        self.__collection[child.name].extend(child.values)
+                    except KeyError:
+                        self.__collection.update({child.name: [child.value]})
+                elif isinstance(child, Element):
+                    try:
+                        self.__collection[child.name].append(child.value)
+                    except KeyError:
+                        self.__collection.update({child.name: [child.value]})
 
+        for container in self.elements:
+            walk_container(container)
 
         return self.__collection
-
-    def _extract_elements(self, parent: Container):
-        for child in parent.children:
-
 
 
 class Attribute:
