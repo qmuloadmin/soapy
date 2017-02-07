@@ -16,7 +16,15 @@ class Client(Log):
     values for a given operation, and sending request. Works with Marshaller to 
     generate SOAP envelope for request """
 
-    constructor_kwargs = ("location", "username", "password", "proxy_url", "proxy_user", "proxy_pass", "secure")
+    constructor_kwargs = ("location",
+                          "username",
+                          "password",
+                          "proxy_url",
+                          "proxy_user",
+                          "proxy_pass",
+                          "secure",
+                          "version"
+                          )
 
     def __init__(self, wsdl_location: str, tl=0, operation=None, service=None, **kwargs):
         
@@ -31,6 +39,7 @@ class Client(Log):
         :keyword proxy_user: The username, if any, to authenticate to the proxy with
         :keyword proxy_pass: The password paired with the username for proxy authentication
         :keyword secure: A boolean flag, defaults to True, if SSL verification should be performed
+        :keyword version: A number representing the SOAP version (1.1 or 1.2) of the request. Defaults to 1.1
 
         Tracelevels:
 
@@ -54,11 +63,12 @@ class Client(Log):
 
         # Initialize some default values
 
-        self.username = None
-        self.password = None
-        self.proxy = ""
+        self.__username = None
+        self.__password = None
+        self.proxy_url = ""
         self.proxy_user = ""
         self.proxy_pass = ""
+        self.__auth = None
         self.headers = {"Content-Type": "text/xml;charset=UTF-8"}
 
         # Update values with kwargs if provided
@@ -115,6 +125,37 @@ class Client(Log):
             self.log("Search for service matching name {0} failed; WDSL does not contain this service"
                      .format(service), 1)
             raise ValueError("WSDL contains no service named {0}".format(service))
+
+    @property
+    def auth(self):
+        return self.__auth
+
+    @auth.setter
+    def auth(self, obj):
+        self.__auth = obj
+
+    @property
+    def username(self):
+        """ The username for HTTP Basic Auth, if needed """
+        return self.__username
+
+    @username.setter
+    def username(self, name):
+        self.__username = name
+        if self.password is not None:
+            self.log("Username provided, setting Authentication type to Basic HTTP", 5)
+            self.auth = HTTPBasicAuth(self.username, self.password)
+
+    @property
+    def password(self):
+        return self.__password
+
+    @password.setter
+    def password(self, p):
+        self.__password = p
+        if self.username is not None:
+            self.log("Password provided, setting Authentication type to Basic HTTP", 5)
+            self.auth = HTTPBasicAuth(self.username, self.password)
 
     @property
     def wsdl(self) -> Wsdl:
@@ -267,12 +308,14 @@ class Client(Log):
          :keyword proxy_user: The Username for basic http auth with the web proxy
          :keyword proxy_pass: The password for basic http auth with the web proxy
          :keyword doctors: A list of the plugins to modify (doctor) the client or soap envelope before
-         calling the webservice """
+         calling the webservice
+         :keyword secure: If False, will not attempt to validate SSL certificates. Defaults to True """
 
         if self.operation is None:
             raise ValueError("Operation must be set before web service can be called")
 
         doctor_plugins = None
+        self.secure = True
 
         for key in kwargs:
             if key in self.constructor_kwargs:
@@ -296,19 +339,21 @@ class Client(Log):
                 self.request_envelope.xml = doctor(self, self.request_envelope.xml, self.tl)
 
         try:
-            if self.username is None:
+            if self.auth is None:
                 self.log("Calling web service at {0}".format(self.location), 3)
                 self.response = requests.post(self.location,
                                               proxies=proxies,
                                               data=self.request_envelope.xml,
-                                              headers=self.headers)
+                                              headers=self.headers,
+                                              verify=self.secure)
             else:
-                self.log("Calling web service at {0} using Basic Authentication".format(self.location), 3)
+                self.log("Calling web service at {0} using Authentication".format(self.location), 3)
                 self.response = requests.post(self.location,
-                                              auth=HTTPBasicAuth(self.username, self.password),
+                                              auth=self.auth,
                                               proxies=proxies,
                                               data=self.request_envelope.xml,
-                                              headers=self.headers)
+                                              headers=self.headers,
+                                              verify=self.secure)
         except ConnectionError as e:
             self.log("Web service connection failed. Check location and try again", 0)
             raise ConnectionError(str(e))
@@ -331,11 +376,11 @@ class Response:
         """
 
         self.__response = response
+        self.__client = client
         if self.isXml:
             self.__bsResponse = BeautifulSoup(self.text, "xml")
         else:
             self.__bsResponse = BeautifulSoup(self.text, "lxml")
-        self.__client = client
         self.outputs = tuple()
         self.faults = tuple()
         faults = list()

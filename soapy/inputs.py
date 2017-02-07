@@ -41,7 +41,7 @@ class Base(Log):
     @property
     def inner_xml(self) -> str:
         """ Represents the xml of the element, including all children, values, etc. If set, then the value of the
-        InputElement will be ignored, as well as any child objects defined in the WSDL. Instead, the value of
+        input will be ignored, as well as any child objects defined in the WSDL. Instead, the value of
         inner_xml will be used verbatim, in place. """
 
         try:
@@ -212,6 +212,9 @@ class Repeatable(Base):
                                                             "{0}".format(linesep).join(str(el) for el in self.elements),
                                                             linesep)
 
+    def __len__(self):
+        return len(self.elements)
+
     @property
     def elements(self) -> list:
         return self.__elements
@@ -309,7 +312,16 @@ class Collection(Repeatable, Container):
         prevents individual collection children from having different attributes. So, once the marshaller
         classes can be updated to iterate through children elements properly, we can remove this method
         """
+
+        for container in self.elements:
+            for child in container.children:
+
+
         return self.__collection
+
+    def _extract_elements(self, parent: Container):
+        for child in parent.children:
+
 
 
 class Attribute:

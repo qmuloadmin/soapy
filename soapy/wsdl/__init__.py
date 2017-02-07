@@ -14,7 +14,7 @@ class Wsdl(Log):
     """ Class reads in WSDL and forms various child objects held together by this parent class
     Which essentially converts wsdl objects inside 'definitions' into Python native objects """
 
-    constructor_kwargs = ("proxy_url", "proxy_user", "proxy_pass", "secure")
+    constructor_kwargs = ("proxy_url", "proxy_user", "proxy_pass", "secure", "version")
 
     def __init__(self, wsdl_location, tracelevel=1, **kwargs):
 
@@ -26,10 +26,12 @@ class Wsdl(Log):
         :keyword proxyUser: The username, if any, to authenticate to the proxy with
         :keyword proxyPass: The password paired with the username for proxy authentication
         :keyword secure: A boolean flag, defaults to True, if SSL verification should be performed
+        :keyword version: An integer representing the SOAP version (1.1 or 1.2) of the request. Default 1.1
         """
 
         super().__init__(tracelevel)
         self.secure = True
+        self.version = 1.1
         for each in kwargs:
             if each in self.constructor_kwargs:
                 setattr(self, each, kwargs[each])

@@ -29,6 +29,7 @@ class Envelope(Marshaller):
         super().__init__(client.tl)
         self.__parts = client.operation.input.parts
         self.__schema = self.parts[0].type.schema
+        self.__version = client.wsdl.version
         self.log("Initializing new Envelope", 4)
         self.used_ns = dict()
         self.used_ns["tns"] = self.schema.name
@@ -101,6 +102,10 @@ class Envelope(Marshaller):
         return self.__body
 
     @property
+    def version(self):
+        return self.__version
+
+    @property
     def header(self):
         return self.__header
 
@@ -110,7 +115,10 @@ class Envelope(Marshaller):
 
     @property
     def soap_ns(self):
-        self.used_ns["soapenv"] = "http://schemas.xmlsoap.org/soap/envelope/"
+        if self.version == 1.1:
+            self.used_ns["soapenv"] = "http://schemas.xmlsoap.org/soap/envelope/"
+        elif self.version == 1.2:
+            self.used_ns["soapenv"] = "http://www.w3.org/2003/05/soap-envelope"
         return "soapenv"
 
     @property
@@ -437,6 +445,7 @@ class Element(Marshaller):
 
         if self.inputObj.inner_xml is not None:
             self.__inner_xml = self.inputObj.inner_xml
+            self.__xml = self.open_tag + self.inner_xml + self.close_tag
         elif self.inputObj.setable:
             if isinstance(self.inputObj, Repeatable):
                 self._process_iter_values(self.inputObj.values)
