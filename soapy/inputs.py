@@ -317,16 +317,18 @@ class Collection(Repeatable, Container):
             for child in co.children:
                 if isinstance(child, Container):
                     walk_container(child)
-                elif isinstance(child, Repeatable):
+                elif isinstance(child, Repeatable) and child[0].value is not None:
                     try:
                         self.__collection[child.name].extend(child.values)
                     except KeyError:
                         self.__collection.update({child.name: [child.value]})
-                elif isinstance(child, Element):
+                elif isinstance(child, Element) and child.value is not None:
                     try:
                         self.__collection[child.name].append(child.value)
                     except KeyError:
                         self.__collection.update({child.name: [child.value]})
+
+        self.__collection = {}
 
         for container in self.elements:
             walk_container(container)
