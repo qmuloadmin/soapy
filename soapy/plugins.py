@@ -1,4 +1,5 @@
-from abc import ABC, abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
+
 from soapy import Log
 from soapy.client import Client
 

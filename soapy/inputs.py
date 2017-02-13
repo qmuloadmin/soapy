@@ -353,10 +353,10 @@ class Attribute:
 
 
 class Factory(Log):
-    """ Create this class, to handle the shortcomings in both notation and functionality introduced by the
-    convenient, but overly-simple InputOptions class. InputFactory will maintain parent/child heirarchy, but will
-    probably require a different Marshaller class to handle (one that relies on the Factory-generated class for
-    structure instead of the WSDL representation)
+    """ Factory creates an input object class structure from the WSDL Type elements that represents the possible
+    inputs to the provided Message. The Factory.root_element object represents the top-level message, and child
+    input elements may be retrieved through normal attribute notation, using the . (dot) operator. You can also
+    print() a Factory class to see a pseudo XML representation of the possible inputs, and their current values.
     """
 
     def __init__(self, root_element, tl):

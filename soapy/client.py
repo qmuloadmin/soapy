@@ -26,6 +26,12 @@ class Client(Log):
                           "version"
                           )
 
+    # A list of supported namespaces for bindings. If not one of these, it is an unknown protocol/spec
+    supported_namespaces = (
+        "http://schemas.xmlsoap.org/wsdl/soap/",
+        "http://schemas.xmlsoap.org/wsdl/soap12/"
+    )
+
     def __init__(self, wsdl_location: str, tl=0, operation=None, service=None, **kwargs):
         
         """ Provide a wsdl file location url, e.g. http://my.domain.com/some/service?wsdl or
@@ -191,8 +197,13 @@ class Client(Log):
     def operation(self, operation_name):
         def ops(service):
             for port in service.ports:
-                for operation in port.binding.type.operations:
-                    yield (port, operation)
+                if port.binding.ns in self.supported_namespaces:
+                    for operation in port.binding.type.operations:
+                        yield (port, operation)
+                else:
+                    self.log('Ignoring operations in port binding "{}" as it is not a supported SOAP version'
+                             .format(port.binding.name), 4)
+
         found = False
         if self.service is None:
             for service in self.wsdl.services:
@@ -246,9 +257,8 @@ class Client(Log):
     @property
     def inputs(self) -> tuple:
         """
-        inputs is a tuple of iterable soapy.client.InputOptions objects. In most cases, there is only one possible
-        input message for a given operation, in which case the tuple will have only 1 element. To use InputFactory
-        as the source of input, please use Client.input_factory instead (currently unimplementented)
+        inputs is a tuple of iterable soapy.client.inputs.Factory objects. In most cases, there is only one possible
+        input message for a given operation, in which case the tuple will have only 1 element.
         """
         try:
             return self.__inputs
@@ -296,7 +306,7 @@ class Client(Log):
                                    r"\1{0}:{1}@\2"
                                     .format(self.proxy_user, self.proxy_pass),
                                     self.proxy_url)
-            self.log("Set proxy to '{0}'".format(self.proxy), 4)
+            self.log("Set proxy to '{0}'".format(self.proxy_url), 4)
 
     def __call__(self, **kwargs):
 

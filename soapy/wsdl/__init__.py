@@ -1,5 +1,6 @@
 import os
 import time
+from re import sub
 
 import requests
 from bs4 import BeautifulSoup
@@ -15,6 +16,7 @@ class Wsdl(Log):
     Which essentially converts wsdl objects inside 'definitions' into Python native objects """
 
     constructor_kwargs = ("proxy_url", "proxy_user", "proxy_pass", "secure", "version")
+    supported_versions = (1.1, 1.2)
 
     def __init__(self, wsdl_location, tracelevel=1, **kwargs):
 
@@ -31,7 +33,10 @@ class Wsdl(Log):
 
         super().__init__(tracelevel)
         self.secure = True
-        self.version = 1.1
+        self.__version = 1.1
+        self.__proxy_url = ""
+        self.__proxy_user = ""
+        self.__proxy_pass = ""
         for each in kwargs:
             if each in self.constructor_kwargs:
                 setattr(self, each, kwargs[each])
@@ -53,6 +58,52 @@ class Wsdl(Log):
         else:
             self.log("Unsupported protocol for WSDL location: {0}".format(wsdl_location), 0)
             raise ValueError("Unsupported protocol for WSDL location: {0}".format(wsdl_location))
+
+    @property
+    def version(self) -> int:
+        return self.__version
+
+    @version.setter
+    def version(self, ver):
+        if float(ver) not in self.supported_versions:
+            raise ValueError("Supported versions include only {}. Invalid version specified: {}"
+                             .format(self.supported_versions, ver))
+        self.__version = float(ver)
+
+    @property
+    def proxy_url(self) -> str:
+        return self.__proxy_url
+
+    @proxy_url.setter
+    def proxy_url(self, url: str):
+        self.__proxy_url = url
+        if not url.startswith("http"):
+            # If http/https not specified, assume http
+            self.__proxy_url = "http://" + url
+        if self.__proxy_pass != "" and self.__proxy_user != "":
+            self._replace_pxy()
+
+    @property
+    def proxy_user(self) -> str:
+        return self.__proxy_user
+
+    @proxy_user.setter
+    def proxy_user(self, user: str):
+        self.log("Setting the proxy user to '{}'".format(user), 5)
+        self.__proxy_user = user
+        if self.__proxy_pass != "" and self.__proxy_url != "":
+            self._replace_pxy()
+
+    @property
+    def proxy_pass(self) -> str:
+        return self.__proxy_pass
+
+    @proxy_pass.setter
+    def proxy_pass(self, p: str):
+        self.log("Setting the proxy password with provided value".format(p), 5)
+        self.__proxy_pass = p
+        if self.__proxy_user != "" and self.__proxy_url != "":
+            self._replace_pxy()
 
     @property
     def wsdl(self) -> Tag:
@@ -140,12 +191,25 @@ class Wsdl(Log):
             self.__namespace = Namespace(self.wsdl, self.log)
             return self.__namespace
 
+    def _replace_pxy(self):
+        self.log("Building proxy URL with credentials", 5)
+        self.__proxy_url = sub(r"(https?://)(\w)",
+                               r"\1{}:{}@\2".format(self.__proxy_user, self.__proxy_pass),
+                               self.__proxy_url)
+
     def _download_wsdl(self, url):
 
         """ Downloads a WSDL from a remote location, attempting to account for proxy,
         then saves it to the proper filename for reading """
-
-        wsdlText = requests.get(url, verify=self.secure).text
+        proxies = {}
+        if self.proxy_url != "":
+            self.log("Setting proxy to {}".format(self.proxy_url.replace(self.__proxy_pass, "***")), 5)
+            proxies = {
+                "http": self.proxy_url,
+                "https": self.proxy_url,
+            }
+        self.log("Downloading WSDL file from {}".format(url), 4)
+        wsdlText = requests.get(url, verify=self.secure, proxies=proxies).text
         with open(self.wsdlFile, "w") as f:
             f.write(wsdlText)
 

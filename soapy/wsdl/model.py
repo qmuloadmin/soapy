@@ -48,9 +48,10 @@ class Binding(Element):
         super().__init__(bsElement, parent)
         # Validate that the binding style is 'document'
         soapBinding = bsElement('binding', recursive=False)[0]
+        self.__ns = soapBinding.namespace
         if not soapBinding.get('style', "document") == "document":
-            self.log("Binding style not set to document. SoaPy can't handle non-document styles", 0)
-            raise TypeError("Binding style not set to document. SoaPy can't handle non-document styles")
+            self.log("Binding style not set to document. Soapy can't handle non-document styles", 0)
+            raise TypeError("Binding style not set to document. Soapy can't handle non-document styles")
 
     @property
     def type(self) -> PortType:
@@ -61,6 +62,10 @@ class Binding(Element):
             (ns, name) = self.bs_element['type'].split(":")
             self.__type = PortType.from_name(name, self.parent)
             return self.__type
+
+    @property
+    def ns(self) -> str:
+        return self.__ns
 
     def get_soap_action(self, op_name) -> str:
 
