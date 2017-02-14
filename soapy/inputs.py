@@ -8,16 +8,25 @@ from soapy import Log
 
 class Base(Log):
 
-    def __init__(self, name, parent, bs_element, tl, update_parent=True):
+    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
         super().__init__(tl)
         self.__parent = parent
         self.__name = name
         self.log("Initializing new {} element with name '{}'".format(self.__class__.__name__, self.name), 4)
-        self.__ref = bs_element
+        self.__ref = wsdl_type
+        # Run the update method here, so we see any type hints that were provided, or any other needed updates
+        # See wsdl.types.Base.update() for more information
+        self.ref.update()
         self.__setable = True
         self.__repeatable = False
         if isinstance(self.parent, Container) and update_parent:
             self.parent.append_child(self)
+
+    def __str__(self):
+        doc = self.ref.bs_element.get("docstring", "")
+        if doc:
+            return "{}<!--- {} -->{}".format(self._str_indent, doc, linesep)
+        return ""
 
     @property
     def _str_indent(self) -> str:
@@ -119,13 +128,17 @@ class AttributableMixin:
 class Element(Base, AttributableMixin):
     """A base input Element is capable of being assigned a value ('setable') and is not repeatable"""
 
-    def __init__(self, name, parent, bs_element, tl, update_parent=True):
-        super().__init__(name, parent, bs_element, tl, update_parent)
+    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
+        super().__init__(name, parent, wsdl_type, tl, update_parent)
         self.__value = None
         AttributableMixin.__init__(self)
 
     def __str__(self):
-        return "{0}<{1} {2}>{3}</{1}>".format(self._str_indent, self.name, " ".join(self.attributes), self.value)
+        prefix = ""
+        if self.ref.enums:
+            prefix = "{}<!--- Enum hints: {}  -->{}".format(self._str_indent, self.ref.enums, linesep)
+        return "{5}{4}{0}<{1} {2}>{3}</{1}>".format(self._str_indent, self.name, " ".join(self.attributes), self.value,
+                                                 prefix, super().__str__())
 
     @classmethod
     def from_sibling(cls, sib):
@@ -154,17 +167,19 @@ class Container(Base, AttributableMixin):
     """ Container elements only contain other elements, and possibly attributes. The can not be set themselves, or
     repeated more than once. They contain attributes that map to other input Elements. """
 
-    def __init__(self, name, parent, bs_element, tl, update_parent=True):
-        super().__init__(name, parent, bs_element, tl, update_parent)
+    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
+        super().__init__(name, parent, wsdl_type, tl, update_parent)
         AttributableMixin.__init__(self)
         self.__setable = False
         self.__children = list()
 
     def __str__(self):
-        return "{4}<{0} {1}>{3}{2}{3}{4}</{0}>".format(self.name, " ".join(self.attributes),
-                                                       "{}".format(linesep).join(str(child) for child in self.children),
-                                                       linesep,
-                                                       self._str_indent)
+        return "{5}{4}<{0} {1}>{3}{2}{3}{4}</{0}>".format(self.name, " ".join(str(attr) for attr in self.attributes),
+                                                          "{}".format(linesep).join(
+                                                              str(child) for child in self.children),
+                                                          linesep,
+                                                          self._str_indent,
+                                                          super().__str__())
 
     @classmethod
     def from_sibling(cls, sib):
@@ -196,8 +211,8 @@ class Container(Base, AttributableMixin):
 class Repeatable(Base):
     """ Repeatable Elements are like normal elements, except their values are left as iterables, not scalars """
 
-    def __init__(self, name, parent, bs_element, tl, update_parent=True):
-        super().__init__(name, parent, bs_element, tl, update_parent)
+    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
+        super().__init__(name, parent, wsdl_type, tl, update_parent)
         self.__repeatable = True
         # We need to initialize the zeroth element in our array to be an Element with the same name
         self.__elements = list()
@@ -207,10 +222,12 @@ class Repeatable(Base):
         return self.__elements[item]
 
     def __str__(self):
-        return "{1}<!--- Repeatable: {0} --->{3}{2}".format(self.name,
-                                                            self._str_indent,
-                                                            "{0}".format(linesep).join(str(el) for el in self.elements),
-                                                            linesep)
+        return "{4}{1}<!--- Repeatable: {0} --->{3}{2}".format(self.name,
+                                                               self._str_indent,
+                                                               "{0}".format(linesep).join(
+                                                                   str(el) for el in self.elements),
+                                                               linesep,
+                                                               super().__str__())
 
     def __len__(self):
         return len(self.elements)
@@ -277,8 +294,8 @@ class Collection(Repeatable, Container):
     """ Collections hold a list of repeatable Containers
     The Collection interface is defined by being repeatable but not setable."""
 
-    def __init__(self, name, parent, bs_element, tl, update_parent=True):
-        super().__init__(name, parent, bs_element, tl, update_parent)
+    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
+        super().__init__(name, parent, wsdl_type, tl, update_parent)
         self.__repeatable = True
         self.__collection = {}
 
@@ -342,14 +359,25 @@ class Attribute:
 
     def __init__(self, name, value):
         self.__name = name
-        self.value = quoteattr(value)
+        if value is not None:
+            self.__value = quoteattr(value)
+        else:
+            self.__value = None
+
+    @property
+    def value(self):
+        return self.__value
+
+    @value.setter
+    def value(self, value):
+        self.__value = quoteattr(str(value))
 
     @property
     def name(self):
         return self.__name
 
     def __str__(self):
-        return "['" + self.name + "'] = " + str(self.value)
+        return self.name + "=" + str(self.value) + ""
 
 
 class Factory(Log):
