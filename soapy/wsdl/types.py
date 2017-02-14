@@ -92,7 +92,7 @@ class TypeContainer(TypeBase):
                 attrs.append(attr)
             for child in self.children:
                 try:
-                    attrs.extend(child.parentAttributes)
+                    attrs.extend(child.parent_attributes)
                 except AttributeError:
                     """ Do nothing, because this means it's an Element """
 
@@ -159,7 +159,19 @@ class TypeElement(TypeBase):
 
     @property
     def min_occurs(self) -> str:
-        return self.bs_element.get("minOccurs", "1")
+        """ min_occurs reflects the configured minimum number of times an element may appear in the SOAP envelope.
+        It is based on the schema type configuration. By default, an element with min_occurs=0 and None value will
+        not appear at all in the rendered envelope -- however, some services use self-closing tags to identify which
+        elements to return, so you may need an empty tag to appear, even if it's set to min_occurs=0. For this reason,
+        you can override the behavior by setting min_occurs to 1 """
+        try:
+            return self.__min_occurs
+        except AttributeError:
+            return self.bs_element.get("minOccurs", "1")
+
+    @min_occurs.setter
+    def min_occurs(self, value):
+        self.__min_occurs = str(value)
 
     @property
     def form(self) -> str:
@@ -224,7 +236,7 @@ class SimpleType(TypeContainer):
 
 
 class Union(TypeContainer):
-    """ Class representing a combination of SimpleTypes (for type value enforcement """
+    """ Class representing a combination of SimpleTypes (for type value enforcement) """
 
 
 class ComplexContent(TypeContainer):
@@ -241,13 +253,20 @@ class Extension(TypeContainer):
 
     @property
     def children(self) -> tuple:
-        children = list(super().children)
+        children = list()
         try:
+            # Add children for each element in the base type, specified in the Extension tag
             child = self.parent.find_type_by_name(self.bs_element['base'])
             children.append(child)
         except KeyError:
             pass
-        return tuple(children)
+        super_children = list(super().children)
+        for i, child in enumerate(super_children):
+            if child == self:
+                break
+        # Insert the new children in the place where this element was located
+        super_children[i:i] = children
+        return tuple(super_children)
 
 
 class Annotation(TypeContainer):
@@ -280,7 +299,10 @@ class Restriction(TypeContainer):
 
 class Choice(TypeContainer):
     """ Class representing a tag containing a choice of Elements. May need to update to provide choice hints to
-    children, or to set minOccurs to 0 """
+    children """
+
+    def update_child_elements(self) -> dict:
+        return {"minOccurs": "0"}
 
 
 class Enumeration(TypeContainer):

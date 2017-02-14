@@ -100,6 +100,17 @@ class Base(Log):
         return self.__ref
 
 
+class RenderOptionsMixin:
+    """ Mixing for applying methods that alter render behavior beyond simple values, etc """
+
+    def render_empty(self):
+        """ Configures the element to be included in the rendered envelope even when empty and min_occurs = 0"""
+        self.log("Setting Element {} to be rendered even when empty".format(self.name), 4)
+        self.ref.min_occurs = "1"
+        if isinstance(self.parent, RenderOptionsMixin):
+            self.parent.render_empty()
+
+
 class AttributableMixin:
     """ Mixin supplying attribute retrieval and setting to input elements that support attributes """
 
@@ -125,7 +136,7 @@ class AttributableMixin:
         raise AttributeError("{} object has no element attribute {}".format(self.__class__.__name__, item))
 
 
-class Element(Base, AttributableMixin):
+class Element(Base, AttributableMixin, RenderOptionsMixin):
     """A base input Element is capable of being assigned a value ('setable') and is not repeatable"""
 
     def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
@@ -137,8 +148,10 @@ class Element(Base, AttributableMixin):
         prefix = ""
         if self.ref.enums:
             prefix = "{}<!--- Enum hints: {}  -->{}".format(self._str_indent, self.ref.enums, linesep)
-        return "{5}{4}{0}<{1} {2}>{3}</{1}>".format(self._str_indent, self.name, " ".join(self.attributes), self.value,
-                                                 prefix, super().__str__())
+        return "{5}{4}{0}<{1} {2}>{3}</{1}>".format(self._str_indent, self.name,
+                                                    " ".join(str(attr) for attr in self.attributes),
+                                                    self.value,
+                                                    prefix, super().__str__())
 
     @classmethod
     def from_sibling(cls, sib):
@@ -163,7 +176,7 @@ class Element(Base, AttributableMixin):
                 self.__value = value
 
 
-class Container(Base, AttributableMixin):
+class Container(Base, AttributableMixin, RenderOptionsMixin):
     """ Container elements only contain other elements, and possibly attributes. The can not be set themselves, or
     repeated more than once. They contain attributes that map to other input Elements. """
 

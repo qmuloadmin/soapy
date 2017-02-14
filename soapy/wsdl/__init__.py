@@ -280,7 +280,8 @@ class Wsdl(Log):
         except AttributeError:
             is_local = True
 
-        ignore_types = ("attribute",)
+        # Any is currently unsupported. Technically, in a crunch, a plugin could generate the elements.
+        ignore_types = ("attribute", "any")
 
         if element.name in ignore_types:
             # These types do not need represented in the types model
