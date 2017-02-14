@@ -1,6 +1,7 @@
 import os
 import time
 from re import sub
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -37,30 +38,19 @@ class Wsdl(Log):
         self.__proxy_url = ""
         self.__proxy_user = ""
         self.__proxy_pass = ""
+        self.__schemas = None
+        self.wsdl_url = wsdl_location
         for each in kwargs:
             if each in self.constructor_kwargs:
                 setattr(self, each, kwargs[each])
             else:
                 raise ValueError("Unexpected keyword argument for {} initializer, {}".format(self.__name__, each))
 
-        # Determine how to load the WSDL, is it a web resource, or a local file?
+        self._download_wsdl(wsdl_location)
 
-        if wsdl_location.startswith("file://"):
-            wsdl_location = wsdl_location.replace("file://", "")
-            with open(wsdl_location) as in_file:
-                with open(self.wsdlFile, "w") as out_file:
-                    for line in in_file:
-                        out_file.write(line)
-        elif wsdl_location.startswith("http://"):
-            self._download_wsdl(wsdl_location)
-        elif wsdl_location.startswith("https://"):
-            self._download_wsdl(wsdl_location)
-        else:
-            self.log("Unsupported protocol for WSDL location: {0}".format(wsdl_location), 0)
-            raise ValueError("Unsupported protocol for WSDL location: {0}".format(wsdl_location))
 
     @property
-    def version(self) -> int:
+    def version(self) -> float:
         return self.__version
 
     @version.setter
@@ -104,6 +94,17 @@ class Wsdl(Log):
         self.__proxy_pass = p
         if self.__proxy_user != "" and self.__proxy_url != "":
             self._replace_pxy()
+
+    @property
+    def proxies(self) -> dict:
+        proxies = {}
+        if self.proxy_url != "":
+            self.log("Setting proxy to {}".format(self.proxy_url.replace(self.__proxy_pass, "***")), 5)
+            proxies = {
+                "http": self.proxy_url,
+                "https": self.proxy_url,
+            }
+        return proxies
 
     @property
     def wsdl(self) -> Tag:
@@ -159,27 +160,20 @@ class Wsdl(Log):
 
     @property
     def schemas(self) -> tuple:
-        try:
+        if self.__schemas is not None:
             return self.__schemas
-        except AttributeError:
-            def import_schemas(schema):
-                imports = schema("import", recursive=False)
-                for each in imports:
-                    try:
-                        schema_soup = self._download_schema(each["schemaLocation"])
-                        for addSchema in schema_soup("schema", recursive=False):
-                            schemas.append(Schema(addSchema, self, None, False))
-                            import_schemas(addSchema)
-                    except KeyError:
-                        """ Assume (for now) that it's a local schema being imported into this one """
-                        # TODO update this logic to be more robust
-
-            types = self.wsdl('types', recursive=False)[0]
+        else:
             schemas = list()
-            for schema in types('schema', recursive=False):
-                schemas.append(Schema(schema, self))
-                import_schemas(schema)
-
+            types = self.wsdl('types', recursive=False)
+            self.log("Building list of schemas from root definitions", 4)
+            # Some WSDLs defined schemas/types inside the types tag
+            # Others have no types tag and import from definitions
+            # Handle both cases, here
+            if len(types) == 1:
+                self._append_extend_schemas(types[0], schemas, (None, True))
+            else:
+                self.log("Importing root-level schemas", 5)
+                schemas.extend(self._import_schemas(self.wsdl))
             self.__schemas = tuple(schemas)
             return self.__schemas
 
@@ -191,33 +185,87 @@ class Wsdl(Log):
             self.__namespace = Namespace(self.wsdl, self.log)
             return self.__namespace
 
+    def _append_extend_schemas(self, soup, schemas: list, contructor_args: tuple):
+        for addSchema in soup("schema", recursive=False):
+            schemas.append(Schema(addSchema, self, *contructor_args))
+            self.log("Appended schema with name '{}' to list of schemas for this WSDL"
+                     .format(schemas[-1].name),
+                     5)
+            schemas.extend(self._import_schemas(addSchema))
+
+    def _import_schemas(self, schema) -> list:
+        imports = schema("import", recursive=False)
+        schemas = list()
+        for each in imports:
+            if "location" in each.attrs:
+                schema_soup = self._download_schema(each["location"])
+                self._append_extend_schemas(schema_soup, schemas, (None, False))
+            elif "schemaLocation" in each.attrs:
+                schema_soup = self._download_schema(each["schemaLocation"])
+                self._append_extend_schemas(schema_soup, schemas, (None, False))
+            else:
+                """ Assume (for now) that it's a local schema being imported into this one """
+                # TODO update this logic to be more robust
+        return schemas
+
     def _replace_pxy(self):
         self.log("Building proxy URL with credentials", 5)
         self.__proxy_url = sub(r"(https?://)(\w)",
                                r"\1{}:{}@\2".format(self.__proxy_user, self.__proxy_pass),
                                self.__proxy_url)
 
+    def _get_or_open_resource(self, url):
+        """This method is required because requests can't handle file:// resources by default (requires plugin)
+        This is simpler than implementing or requiring a package. Yield lines if it's a file, otherwise yield the
+        entire text response. Not ideal but no easy way to yeild from web resource """
+        if url.startswith("file://"):
+            self.log("Reading file from {}".format(url), 3)
+            wsdl_location = url.replace("file://", "")
+            with open(wsdl_location) as in_file:
+                for line in in_file:
+                    yield line
+        elif url.startswith("http://"):
+            self.log("Downloading file from {}".format(url), 3)
+            yield requests.get(url, proxies=self.proxies).text
+        elif url.startswith("https://"):
+            self.log("Downloading file from {} with secure={}".format(url, self.secure), 3)
+            yield requests.get(url, verify=self.secure, proxies=self.proxies).text
+        else:
+            self.log("Unsupported protocol for location: {0}".format(url), 0)
+            raise ValueError("Unsupported protocol for WSDL location: {0}".format(url))
+
     def _download_wsdl(self, url):
 
         """ Downloads a WSDL from a remote location, attempting to account for proxy,
         then saves it to the proper filename for reading """
-        proxies = {}
-        if self.proxy_url != "":
-            self.log("Setting proxy to {}".format(self.proxy_url.replace(self.__proxy_pass, "***")), 5)
-            proxies = {
-                "http": self.proxy_url,
-                "https": self.proxy_url,
-            }
-        self.log("Downloading WSDL file from {}".format(url), 4)
-        wsdlText = requests.get(url, verify=self.secure, proxies=proxies).text
+
+        wsdl_text = self._get_or_open_resource(url)
         with open(self.wsdlFile, "w") as f:
-            f.write(wsdlText)
+            for line in wsdl_text:
+                f.write(line)
 
     def _download_schema(self, url) -> Tag:
 
+        """ To import, we need to support relative paths. Unfortunately, because we support file:// without requiring
+        an actual valid URL (backslashes/space are allowed), so if we're dealing with a file://, we need to convert
+        to a valid URL and then process it with urljoin to compensate for relative paths. This adds the requirement
+        that the WSDL file be absolute, and not relative."""
+
+        if self.wsdl_url.startswith("file://") and not "://" in url:
+            # Since file:// isn't a url, we can't use urljoin. Converting to a URL is possible, but converting back
+            # into a file path is annoying difficult to be cross-platform and robust. So, we're just going to handle
+            # the relative path possibility here, manually. We're going to assume that it's either in a more
+            # progressive path or the current path(basically, no '..' references)
+            from re import sub
+            # remove the filename from wsdl_url, leaving only the path
+            pattern = r"(file://.*{0})[^{0}]*".format(os.sep).replace("\\", "\\\\")
+            ref_dir = sub(pattern, r"\1", self.wsdl_url)
+            url = ref_dir + url
+        else:
+            url = urljoin(self.wsdl_url, url)
         self.log("Importing schema from url: {0}".format(url), 5)
-        response = requests.get(url, verify=self.secure)
-        schema = BeautifulSoup(response.text, "xml")
+        response = "".join(line for line in self._get_or_open_resource(url))
+        schema = BeautifulSoup(response, "xml")
         return schema
 
     def __str__(self):
@@ -232,23 +280,31 @@ class Wsdl(Log):
         except AttributeError:
             is_local = True
 
-        if element.name == "element":
-            return TypeElement(element, self, schema, is_local)
-        elif element.name == "complexType":
-            return ComplexType(element, self, schema, is_local)
-        elif element.name == "sequence":
-            return SequenceType(element, self, schema, is_local)
-        elif element.name == "attribute" or element.name == "enumeration":
+        ignore_types = ("attribute",)
+
+        if element.name in ignore_types:
+            # These types do not need represented in the types model
             return None
-        elif element.name == "complexContent":
-            return ComplexContent(element, self, schema, is_local)
-        elif element.name == "extension" or element.name == "restriction":
-            return Extension(element, self, schema, is_local)
-        elif element.name == "simpleContent":
-            return SimpleContent(element, self, schema, is_local)
-        elif element.name == "simpleType":
-            return SimpleType(element, self, schema, is_local)
-        else:
+
+        switch = {
+            "element": TypeElement,
+            "complexType": ComplexType,
+            "sequence": SequenceType,
+            "complexContent": ComplexContent,
+            "restriction": Restriction,
+            "extension": Extension,
+            "simpleContent": SimpleContent,
+            "simpleType": SimpleType,
+            "union": Union,
+            "enumeration": Enumeration,
+            "choice": Choice,
+            "annotation": Annotation,
+            "documentation": Documentation
+        }
+
+        try:
+            return switch[element.name](element, self, schema, is_local)
+        except KeyError:
             raise NotImplementedError("XML Element Type <{0}> not yet implemented".format(element.name))
 
     def _find_namespace(self, ns) -> str:

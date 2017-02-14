@@ -8,19 +8,15 @@ from soapy.wsdl.element import Element
 
 class TypeBase(Element):
 
-    def update(self, parent, parent_updates=dict()):
+    def update(self, parent=None, parent_updates=dict()):
 
-        for child in self.children:
-            if child is None:
-                continue
-            try:
-                parent_updates.update(self.update_parent_element(parent))
-            except (TypeError, AttributeError):
-                pass
-            child.update(parent, parent_updates)
-        if isinstance(self, TypeElement):
-            for key, value in parent_updates:
-                self.bs_element[key] = value
+        """ Update is recursive, goes through all children and executes the update_parent_element method on each,
+        if it exists (if it doesn't, then it is also an Element, and so we don't want to update this Element with
+        it's children's properties). These updates apply attributes and properties to the parent element so we
+        can properly handle the child properties (like an enum, or an extension's base type).
+
+        parent should be the Element being updated. It will be passed to all children recursively to receive all
+        their updates. If not provided, it will assume the element calling update is the parent. """
 
     def _process_element_children(self, parents=list()) -> tuple:
 
@@ -29,7 +25,7 @@ class TypeBase(Element):
         child_updates = dict()
         try:
             c_update = self.update_child_elements()
-            if c_update is not None:
+            if c_update:
                 self.log("Found update item(s) for Children: {0}".format(c_update), 4)
                 child_updates.update(c_update)
         except AttributeError:
@@ -72,6 +68,12 @@ class TypeContainer(TypeBase):
     """ Any <tag> defined in a schema that is not an element. In other words, it contains or
     describes other elements. E.g, <sequence> or <complexType> """
 
+    def update(self, parent=None, parent_updates=dict()):
+        parent_updates.update(self.update_parent_element(parent))
+        for child in self.children:
+            if isinstance(child, TypeContainer):
+                child.update(parent, parent_updates)
+
     @property
     def parent_attributes(self) -> tuple:
 
@@ -104,14 +106,31 @@ class TypeContainer(TypeBase):
         subclasses and merges them with the parent TypeElement.
         :param parent: The TypeElement parent object to be updated """
 
+        return {}
+
     def update_child_elements(self) -> dict:
         
         """ Called during elementChildren property construction. A dict of attribute
         changes that should be made to the child bsElement attributes """
 
+        return {}
+
 
 class TypeElement(TypeBase):
     """ Class containing attributes and properties of an element in a Type definition """
+
+    def update(self, parent=None, updates=dict()):
+        """ update for an Element means take the returned, consolidated values of children and apply them to self """
+        updates = dict()
+        for child in self.children:
+            if isinstance(child, TypeContainer):
+                child.update(self, updates)
+        self.log("Updating {} with attributes from child elements: {}".format(self.name, updates), 5)
+        for key, value in updates.items():
+            try:
+                self.bs_element[key].append(value)
+            except (AttributeError, KeyError):
+                self.bs_element[key] = value
 
     @property
     def attributes(self) -> tuple:
@@ -124,7 +143,7 @@ class TypeElement(TypeBase):
                 attributes.append(Attribute(attribute, self.parent))
             for child in self.children:
                 try:
-                    attributes.extend(child.parentAttributes)
+                    attributes.extend(child.parent_attributes)
                 except AttributeError:
                     """ Do nothing, because this means it's an Element """
             self.__attributes = tuple(attributes)
@@ -144,7 +163,11 @@ class TypeElement(TypeBase):
 
     @property
     def form(self) -> str:
-            return self.bs_element.get("form", "qualified")
+        return self.bs_element.get("form", "qualified")
+
+    @property
+    def enums(self) -> tuple:
+        return tuple(self.bs_element.get("enum_hint", []))
 
     @property
     def type(self) -> str:
@@ -156,7 +179,7 @@ class TypeElement(TypeBase):
     @property
     def children(self) -> tuple:
 
-        """ Augmenting parent method definition to resolve soft children via type declarations """
+        """ Overriding parent method definition to resolve soft children via type declarations """
 
         try:
             return self.__children
@@ -200,6 +223,10 @@ class SimpleType(TypeContainer):
     """ Class representing type value enforcement """
 
 
+class Union(TypeContainer):
+    """ Class representing a combination of SimpleTypes (for type value enforcement """
+
+
 class ComplexContent(TypeContainer):
     """ Class representing a dynamic container of other types """
 
@@ -209,7 +236,8 @@ class SimpleContent(TypeContainer):
 
 
 class Extension(TypeContainer):
-    """ Class representing a tag extending other types """
+    """ Class representing a tag extending other types.
+    Will need to update to add Attributes defined within to parent """
 
     @property
     def children(self) -> tuple:
@@ -222,9 +250,45 @@ class Extension(TypeContainer):
         return tuple(children)
 
 
-class SequenceType(TypeContainer):
-    """ Class representing an ordered sequence of types """
+class Annotation(TypeContainer):
+    """ Class representing a WSDL-comment to provide information to the user or client """
+
+
+class Documentation(TypeContainer):
+    """ Class representing documentation to be presented to the end-user """
 
     def update_parent_element(self, parent) -> dict:
-        return {"type": parent.type}
+        return {"docstring": self.bs_element.text}
 
+
+class Restriction(TypeContainer):
+    """ Class representing a tag restricting types. May need updated in the future
+    to provide a validate() method on rendering to ensure the value is compatible. This is not a supported or required
+    feature at the moment. Restriction types ignore all children, providing the base type instead. """
+
+    @property
+    def children(self) -> tuple:
+        self.log("Adding base child of Restriction type '{}'".format(self.name), 5)
+        children = list()
+        try:
+            child = self.parent.find_type_by_name(self.bs_element['base'])
+            children.append(child)
+        except KeyError:
+            pass
+        return tuple(children)
+
+
+class Choice(TypeContainer):
+    """ Class representing a tag containing a choice of Elements. May need to update to provide choice hints to
+    children, or to set minOccurs to 0 """
+
+
+class Enumeration(TypeContainer):
+    """ Class representing an enumeration, or a list of possible values. Provides enum_hint to the parent Element """
+
+    def update_parent_element(self, parent) -> dict:
+        return {"enum_hint": [self.bs_element["value"]]}
+
+
+class SequenceType(TypeContainer):
+    """ Class representing an ordered sequence of types """
