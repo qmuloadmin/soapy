@@ -382,7 +382,7 @@ class Element(Marshaller):
         # Render attributes, and then the close brace '>'
         for attr in self.definition.attributes:
             if self.inputObj[attr.name].value is not None:
-                self.__open_tag += ' {0}="{1}"'.format(attr.name, self.inputObj[attr.name].value)
+                self.__open_tag += ' {0}={1}'.format(attr.name, self.inputObj[attr.name].value)
         self.__open_tag += ">"
 
     def render(self, collection=dict()) -> None:

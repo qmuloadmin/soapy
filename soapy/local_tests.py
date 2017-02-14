@@ -91,7 +91,7 @@ class PluginTests(unittest.TestCase):
         self.client.inputs[0].root_element.blz.value = "test"
         self.client.location = "http://examplehost/fakeserver"
 
-    location = "http://examplehost.com/service.asp"
+    location = "http://examplehost/service.asp"
 
     def failsafe(self, doc):
         try:

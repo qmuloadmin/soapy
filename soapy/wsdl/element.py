@@ -117,6 +117,7 @@ class Element:
         try:
             return self.__children
         except AttributeError:
+            self.log("Retrieving list of children for Element {}".format(self.name), 5)
             children = list()
             for each in self.bs_element.children:
                 if not isinstance(each, Tag):
