@@ -197,11 +197,11 @@ class TypeElement(TypeBase):
             return self.__children
         except AttributeError:
             children = list(super().children)
-            if len(children) == 0:
-                softChild = self.parent.find_type_by_name(self.type, self.schema.name)
-                if softChild is not None:
+            if self.type:
+                soft_child = self.parent.find_type_by_name(self.type, self.schema.name)
+                if soft_child is not None:
                     if self.bs_element.counter < 2:
-                        children.append(softChild)
+                        children.append(soft_child)
             self.__children = tuple(children)
             return self.__children
 

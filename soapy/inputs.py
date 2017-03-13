@@ -12,6 +12,7 @@ class Base(Log):
         super().__init__(tl)
         self.__parent = parent
         self.__name = name
+        self.__depth = None
         self.log("Initializing new {} element with name '{}'".format(self.__class__.__name__, self.name), 4)
         self.__ref = wsdl_type
         # Run the update method here, so we see any type hints that were provided, or any other needed updates
@@ -19,6 +20,7 @@ class Base(Log):
         self.ref.update()
         self.__setable = True
         self.__repeatable = False
+        self.__empty = True
         if isinstance(self.parent, Container) and update_parent:
             self.parent.append_child(self)
 
@@ -37,6 +39,18 @@ class Base(Log):
     @property
     def parent(self):
         return self.__parent
+
+    @property
+    def is_empty(self):
+        """ Tracks the state of whether or not the element (and all child elements) is empty. """
+        return self.__empty
+
+    @is_empty.setter
+    def is_empty(self, state):
+        # Set the parents to not empty
+        if self.parent is not None:
+            self.parent.is_empty = state
+        self.__empty = state
 
     @property
     def is_collection(self) -> bool:
@@ -68,15 +82,16 @@ class Base(Log):
 
     @property
     def depth(self) -> int:
-        try:
+        if self.__depth is not None:
             return self.__depth
-        except AttributeError:
+        else:
             # Determine the depth
             self.__depth = 0
-            working_parent = self.parent
-            while working_parent is not None:
-                working_parent = working_parent.parent
+
+            def inc(_):
                 self.__depth += 1
+                return self.__depth
+            self._map_parents(inc)
             return self.__depth
 
     @property
@@ -98,6 +113,17 @@ class Base(Log):
     @property
     def ref(self):
         return self.__ref
+
+    def _map_parents(self, func):
+        """ Map a function to take action on every parent, recursively, until None is found
+        Provided function will be passed the current parent """
+
+        working_parent = self.parent
+        result = None
+        while working_parent is not None:
+            result = func(working_parent)
+            working_parent = working_parent.parent
+        return result
 
 
 class RenderOptionsMixin:
@@ -274,6 +300,10 @@ class Repeatable(Base):
         else:
             return None
 
+    @value.setter
+    def value(self, val):
+        self.__values = (val,)
+
     @property
     def repeatable(self):
         return self.__repeatable
@@ -349,9 +379,9 @@ class Collection(Repeatable, Container):
                     walk_container(child)
                 elif isinstance(child, Repeatable) and child[0].value is not None:
                     try:
-                        self.__collection[child.name].extend(child.values)
+                        self.__collection[child.name].append(child.values)
                     except KeyError:
-                        self.__collection.update({child.name: [child.value]})
+                        self.__collection.update({child.name: [child.values]})
                 elif isinstance(child, Element) and child.value is not None:
                     try:
                         self.__collection[child.name].append(child.value)
@@ -390,7 +420,7 @@ class Attribute:
         return self.__name
 
     def __str__(self):
-        return self.name + "=" + str(self.value) + ""
+        return self.name + "=" + str(self.value)
 
 
 class Factory(Log):
