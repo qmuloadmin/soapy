@@ -18,6 +18,7 @@ class Wsdl(Log):
 
     constructor_kwargs = ("proxy_url", "proxy_user", "proxy_pass", "secure", "version")
     supported_versions = (1.1, 1.2)
+    w3_schemas = ("http://www.w3.org/2001/XMLSchema",)
 
     def __init__(self, wsdl_location, tracelevel=1, **kwargs):
 
@@ -39,6 +40,7 @@ class Wsdl(Log):
         self.__proxy_user = ""
         self.__proxy_pass = ""
         self.__schemas = None
+        self.__ns_name_cache = {}
         self.wsdl_url = wsdl_location
         for each in kwargs:
             if each in self.constructor_kwargs:
@@ -368,19 +370,42 @@ class Wsdl(Log):
                         target_ns = self._find_namespace(ns)
                     break
 
+        # If the target_ns is the XSD from w3.org, we don't need to bother searching for it; we won't find it
+        # as these types are considered "built in" to the WSDL standard, and we don't do type enforcement anyway
+        if target_ns in self.w3_schemas:
+            return None
+
+        def scan_schema() -> bool:
+            for child in schema.bs_element.children:
+                try:
+                    self.__ns_name_cache[target_ns][child["name"]] = (child, schema)
+                    if name == child["name"]:
+                        return True
+                except (KeyError, TypeError):
+                    pass
+            return False
+
         self.log("Type resides in namespace of {0}".format(target_ns), 5)
-        for schema in self.schemas:
-            if schema.name == target_ns:
-                self.log("Found schema matching namespace of {0}:{1}".format(ns, schema.name), 5)
-                tags = schema.bs_element("", {"name": name}, recursive=False)
-                if len(tags) > 0:
-                    return self.type_factory(tags[0], schema)
-            elif not target_ns:
-                self.log("Unable to identify target namepsace! This is probably due to a bug in underlying modules. "
-                         + "First global match will be used", 1)
-                tags = schema.bs_element("", {"name": name}, recursive=False)
-                if len(tags) > 0:
-                    return self.type_factory(tags[0], schema)
+        if target_ns not in self.__ns_name_cache:
+            self.__ns_name_cache[target_ns] = {}
+        if name not in self.__ns_name_cache[target_ns]:
+            for schema in self.schemas:
+                if schema.name == target_ns:
+                    self.log("Found schema matching namespace of {0}:{1}".format(ns, schema.name), 5)
+                    result = scan_schema()
+                    if result:
+                        break
+
+                elif not target_ns:
+                    self.log("Unable to identify target namespace! This is probably due to a bug in xml modules. "
+                             + "First global match will be used", 1)
+                    tags = schema.bs_element("", {"name": name}, recursive=False)
+                    if len(tags) > 0:
+                        self.__ns_name_cache[target_ns][name] = (tags[0], schema)
+                        break
+
+        if name in self.__ns_name_cache[target_ns]:
+            return self.type_factory(*self.__ns_name_cache[target_ns][name])
 
         self.log("Unable to find Type based on name {0}".format(name), 2)
         return None
