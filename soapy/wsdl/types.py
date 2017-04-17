@@ -8,6 +8,10 @@ from soapy.wsdl.element import Element
 
 class TypeBase(Element):
 
+    def __init__(self, bs_element, wsdl, schema=None, is_local=True):
+        super().__init__(bs_element, wsdl, schema, is_local)
+        self.__element_children = None
+
     def update(self, parent=None, parent_updates=dict()):
 
         """ Update is recursive, goes through all children and executes the update_parent_element method on each,
@@ -57,16 +61,19 @@ class TypeBase(Element):
 
     @property
     def element_children(self) -> tuple:
-        try:
-            return self.__element_children
-        except AttributeError:
+        if self.__element_children is None:
             self.log("In recursive process of isolating and updating TypeElement children", 5)
-            return self._process_element_children([self.bs_element])
+            self._process_element_children([self.bs_element])
+        return self.__element_children
 
 
 class TypeContainer(TypeBase):
     """ Any <tag> defined in a schema that is not an element. In other words, it contains or
     describes other elements. E.g, <sequence> or <complexType> """
+
+    def __init__(self, bs_element, wsdl, schema=None, is_local=True):
+        super().__init__(bs_element, wsdl, schema, is_local)
+        self.__parent_attributes = None
 
     def update(self, parent=None, parent_updates=dict()):
         parent_updates.update(self.update_parent_element(parent))
@@ -76,12 +83,8 @@ class TypeContainer(TypeBase):
 
     @property
     def parent_attributes(self) -> tuple:
-
         """ Returns the attributes defined within this tag, and any non-element children """
-
-        try:
-            return self.__parent_attributes
-        except AttributeError:
+        if self.__parent_attributes is None:
             attrs = list()
             self.log("In recursive process of consolidating attributes. Current object is '{0}' the {1}"
                      .format(self.name, self.tag), 5)
@@ -97,7 +100,7 @@ class TypeContainer(TypeBase):
                     """ Do nothing, because this means it's an Element """
 
             self.__parent_attributes = tuple(attrs)
-            return self.__parent_attributes
+        return self.__parent_attributes
 
     def update_parent_element(self, parent) -> dict:
         
@@ -119,6 +122,13 @@ class TypeContainer(TypeBase):
 class TypeElement(TypeBase):
     """ Class containing attributes and properties of an element in a Type definition """
 
+    def __init__(self, bs_element, wsdl, schema=None, is_local=True):
+        super().__init__(bs_element, wsdl, schema, is_local)
+
+        # Attributes that are evaluated lazy
+        self.__attributes = None
+        self.__children = None
+
     def update(self, parent=None, updates=dict()):
         """ update for an Element means take the returned, consolidated values of children and apply them to self """
         updates = dict()
@@ -134,9 +144,7 @@ class TypeElement(TypeBase):
 
     @property
     def attributes(self) -> tuple:
-        try:
-            return self.__attributes
-        except:
+        if self.__attributes is None:
             self.log("Initializing list of attributes for element {0}".format(self.name), 5)
             attributes = self.bs_element('attribute', recursive=False)
             for attribute in attributes:
@@ -147,7 +155,7 @@ class TypeElement(TypeBase):
                 except AttributeError:
                     """ Do nothing, because this means it's an Element """
             self.__attributes = tuple(attributes)
-            return self.__attributes
+        return self.__attributes
 
     @property
     def nillable(self) -> str:
@@ -190,12 +198,9 @@ class TypeElement(TypeBase):
 
     @property
     def children(self) -> tuple:
-
         """ Overriding parent method definition to resolve soft children via type declarations """
 
-        try:
-            return self.__children
-        except AttributeError:
+        if self.__children is None:
             children = list(super().children)
             if self.type:
                 soft_child = self.parent.find_type_by_name(self.type, self.schema.name)
@@ -203,7 +208,7 @@ class TypeElement(TypeBase):
                     if self.bs_element.counter < 2:
                         children.append(soft_child)
             self.__children = tuple(children)
-            return self.__children
+        return self.__children
 
 
 class Attribute(Element):

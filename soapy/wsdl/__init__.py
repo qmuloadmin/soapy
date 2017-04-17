@@ -48,8 +48,16 @@ class Wsdl(Log):
             else:
                 raise ValueError("Unexpected keyword argument for {} initializer, {}".format(self.__name__, each))
 
-        self._download_wsdl(wsdl_location)
+        # Attributes that are evaluated lazy. Initializing to None to indicate they need evaluated on demand
+        self.__wsdl = None
+        self.__soup = None
+        self.__wsdlFile = None
+        self.__services = None
+        self.__schemas = None
+        self.__namespace = None
 
+        # Download the wsdl last as it relies on attributes set above
+        self._download_wsdl(wsdl_location)
 
     @property
     def version(self) -> float:
@@ -110,32 +118,25 @@ class Wsdl(Log):
 
     @property
     def wsdl(self) -> Tag:
-        try:
-            return self.__wsdl
-        except AttributeError:
+        if self.__wsdl is None:
             self.log('Getting root definitions of WSDL', 5)
             self.__wsdl = self.soup("definitions", recursive=False)[0]
-            return self.__wsdl
+        return self.__wsdl
 
     @property
     def soup(self) -> Tag:
-        try:
-            return self.__soup
-        except AttributeError:
+        if self.__soup is None:
             self.log("Parsing WSDL file and rendering Element Tree", 5)
             with open(self.wsdlFile) as f:
                 self.__soup = BeautifulSoup(f, "xml")
             os.remove(self.wsdlFile)
-            return self.__soup
+        return self.__soup
 
     @property
     def wsdlFile(self) -> str:
 
         """ Create a temporary file, handling overlap in the off chance it already exists """
-
-        try:
-            return self.__wsdlFile
-        except AttributeError:
+        if self.__wsdlFile is None:
             self.log("Initializing wsdl file cache", 5)
             f = str(os.getpid()) + ".temp"
 
@@ -143,28 +144,23 @@ class Wsdl(Log):
                 f = str(time.time()) + f
             self.log("Set wsdlFile for instance to cache: {0}".format(f), 4)
             self.__wsdlFile = f
-            return self.__wsdlFile
+        return self.__wsdlFile
 
     @property
     def services(self) -> tuple:
 
         """ The list of services available. The list will contain soapy.Service objects """
-
-        try:
-            return self.__services
-        except AttributeError:
+        if self.__services is None:
             self.log("Initializing list of services with services defined in WSDL", 5)
             services = list()
             for service in self.wsdl('service', recursive=False):
                 services.append(Service(service, self))
             self.__services = tuple(services)
-            return self.__services
+        return self.__services
 
     @property
     def schemas(self) -> tuple:
-        if self.__schemas is not None:
-            return self.__schemas
-        else:
+        if self.__schemas is None:
             schemas = list()
             types = self.wsdl('types', recursive=False)
             self.log("Building list of schemas from root definitions", 4)
@@ -177,15 +173,13 @@ class Wsdl(Log):
                 self.log("Importing root-level schemas", 5)
                 schemas.extend(self._import_schemas(self.wsdl))
             self.__schemas = tuple(schemas)
-            return self.__schemas
+        return self.__schemas
 
     @property
     def namespace(self) -> Namespace:
-        try:
-            return self.__namespace
-        except AttributeError:
+        if self.__namespace is None:
             self.__namespace = Namespace(self.wsdl, self.log)
-            return self.__namespace
+        return self.__namespace
 
     def _append_extend_schemas(self, soup, schemas: list, contructor_args: tuple):
         for addSchema in soup("schema", recursive=False):
