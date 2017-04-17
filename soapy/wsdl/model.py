@@ -2,37 +2,42 @@ from soapy.wsdl.element import Element
 
 """ Models are pythonic objects representing the XML tags in a WSDL, but outside of the Types tag """
 
+
 class Service(Element):
     """ Simplified, native Python representation of Service definitions in WSDL
     Provides information on child (port) objects by name and service tag attribute information """
 
+    def __init__(self, bs_element, wsdl):
+        super().__init__(bs_element, wsdl)
+        self.__ports = None
+
     @property
     def ports(self) -> tuple:
-        try:
-            return self.__ports
-        except AttributeError:
+        if self.__ports is None:
             self.log("Initializing list of ports defined for service {0}".format(self.name), 5)
             ports = list()
             for port in self.bs_element('port', recursive=False):
                 ports.append(Port(port, self.parent))
             self.__ports = tuple(ports)
-            return self.__ports
+        return self.__ports
 
 
 class PortType(Element):
     """ Simplified, native Python representation of portType definition in WSDL """
 
+    def __init__(self, bs_element, wsdl):
+        super().__init__(bs_element, wsdl)
+        self.__operations = None
+
     @property
     def operations(self) -> tuple:
-        try:
-            return self.__operations
-        except AttributeError:
+        if self.__operations is None:
             self.log("Initializing operations for portType {0} from wsdl".format(self.name), 5)
             operations = list()
             for operation in self.bs_element('operation', recursive=False):
                 operations.append(Operation(operation, self.parent))
             self.__operations = tuple(operations)
-            return self.__operations
+        return self.__operations
 
     @property
     def methods(self) -> tuple:
@@ -44,24 +49,25 @@ class Binding(Element):
     Also provides enforcement that the style of the binding is document
     as this library does not (currently) support other styles """
 
-    def __init__(self, bsElement, parent):
-        super().__init__(bsElement, parent)
+    def __init__(self, bs_element, parent):
+        super().__init__(bs_element, parent)
         # Validate that the binding style is 'document'
-        soapBinding = bsElement('binding', recursive=False)[0]
+        soapBinding = bs_element('binding', recursive=False)[0]
         self.__ns = soapBinding.namespace
         if not soapBinding.get('style', "document") == "document":
             self.log("Binding style not set to document. Soapy can't handle non-document styles", 0)
             raise TypeError("Binding style not set to document. Soapy can't handle non-document styles")
 
+        # Attributes to be evaluated lazy
+        self.__type = None
+
     @property
     def type(self) -> PortType:
-        try:
-            return self.__type
-        except AttributeError:
+        if self.__type is None:
             self.log("Initializing portType from binding {0}".format(self.name), 5)
             (ns, name) = self.bs_element['type'].split(":")
             self.__type = PortType.from_name(name, self.parent)
-            return self.__type
+        return self.__type
 
     @property
     def ns(self) -> str:
@@ -88,26 +94,27 @@ class Binding(Element):
 class Port(Element):
     """ Simplified, native Python representation of ports as defined within services """
 
+    def __init__(self, bs_element, wsdl):
+        super().__init__(bs_element, wsdl)
+        self.__binding = None
+        self.__location = None
+
     @property
     def binding(self) -> Binding:
-        try:
-            return self.__binding
-        except AttributeError:
+        if self.__binding is None:
             self.log("Initializing binding attribute for port {0}".format(self.name), 5)
             binding = self.bs_element['binding']
             (ns, name) = binding.split(':')
             self.__binding = Binding.from_name(name, self.parent)
-            return self.__binding
+        return self.__binding
 
     @property
     def location(self) -> str:
-        try:
-            return self.__location
-        except AttributeError:
+        if self.__location is None:
             self.log("Initializing location of Port based on address element", 5)
             self.__location = self.bs_element('address', recursive=False)[0]['location']
             self.log("Initialized location to {0}".format(self.__location), 4)
-            return self.__location
+        return self.__location
 
     @location.setter
     def location(self, location):
@@ -115,27 +122,33 @@ class Port(Element):
 
 
 class Message(Element):
+
+    def __init__(self, bs_element, wsdl):
+        super().__init__(bs_element, wsdl)
+        self.__parts = None
+
     @property
     def parts(self) -> tuple:
-        try:
-            return self.__parts
-        except AttributeError:
+        if self.__parts is None:
             self.log("Initializing parts for message {0}".format(self.name), 5)
             parts = list()
             for part in self.bs_element('part', recursive=False):
                 parts.append(Part(part, self.parent))
             self.__parts = tuple(parts)
-            return self.__parts
+        return self.__parts
 
 
 class Part(Element):
+
+    def __init__(self, bs_element, wsdl):
+        super().__init__(bs_element, wsdl)
+        self.__type = None
+
     @property
     def type(self) -> Element:
-        try:
-            return self.__type
-        except AttributeError:
+        if self.__type is None:
             self.__type = self.parent.find_type_by_name(self.bs_element['element'])
-            return self.__type
+        return self.__type
 
     @property
     def element(self) -> Element:
@@ -149,37 +162,36 @@ class Part(Element):
 class Operation(Element):
     """ Simplified, native Python representation of an operation definition in portType element group"""
 
+    def __init__(self, bs_element, wsdl):
+        super().__init__(bs_element, wsdl)
+        self.__input = None
+        self.__output = None
+        self.__faults = None
+
     @property
     def input(self) -> Message:
-        try:
-            return self.__input
-        except AttributeError:
+        if self.__input is None:
             name = self.bs_element('input')[0].get('message').split(":")[1]
             self.__input = Message.from_name(name, self.parent)
-            return self.__input
+        return self.__input
 
     @property
     def output(self) -> Message:
-        try:
-            return self.__output
-        except AttributeError:
+        if self.__output is None:
             name = self.bs_element('output')[0].get('message').split(":")[1]
             self.__output = Message.from_name(name, self.parent)
-            return self.__output
+        return self.__output
 
     @property
     def faults(self) -> tuple:
-        try:
-            return self.__faults
-        except AttributeError:
+        if self.__faults is None:
             search_results = self.bs_element('fault')
             if len(search_results) > 0:
                 faults = list()
                 for each in search_results:
                     faults.append(Message.from_name(each.get("message").split(":")[1], self.parent))
                 self.__faults = tuple(faults)
-                return self.__faults
             else:
                 self.log("Operation has no fault message specified", 2)
                 self.__faults = tuple()
-                return self.__faults
+        return self.__faults

@@ -99,6 +99,12 @@ class Client(Log):
             **dict((key, value) for key, value in kwargs.items() if key in Wsdl.constructor_kwargs)
         )
 
+        # Attributes that are evaluated lazy
+        self.__service = None
+        self.__operation = None
+        self.__schema = None
+        self.__request_envelope = None
+
         # If either operation or service is set, initialize them to starting values
 
         if service is not None:
@@ -114,10 +120,7 @@ class Client(Log):
     @property
     def service(self) -> Service:
         """ The service that the client is interacting with. May be one of a list, or the only service defined"""
-        try:
-            return self.__service
-        except AttributeError:
-            return None
+        return self.__service
     
     @service.setter
     def service(self, service):
@@ -188,10 +191,7 @@ class Client(Log):
 
         :return: The wsdl.Model.Operation object selected for this client instance, or None if not yet set
         """
-        try:
-            return self.__operation
-        except AttributeError:
-            return None
+        return self.__operation
 
     @operation.setter
     def operation(self, operation_name):
@@ -233,10 +233,9 @@ class Client(Log):
 
     @property
     def schema(self):
-        try:
-            return self.__schema
-        except:
+        if self.__schema is None:
             raise ValueError("Must set operation before schema can be determined")
+        return self.__schema
 
     @property
     def location(self) -> str:
@@ -275,20 +274,18 @@ class Client(Log):
 
     @property
     def request_envelope(self):
-        try:
-            return self.__requestEnvelope
-        except AttributeError:
+        if self.__request_envelope is None:
             self._build_envelope()
             self.log("Rendered request envelope: {0}"
-                     .format(self.__requestEnvelope),
+                     .format(self.__request_envelope),
                      5)
-            return self.__requestEnvelope
+        return self.__request_envelope
 
     def _build_envelope(self):
         self.log("Initializing marshaller for envelope", 5)
-        self.__requestEnvelope = soapy.marshal.Envelope(self)
+        self.__request_envelope = soapy.marshal.Envelope(self)
         self.log("Rendering request envelope", 5)
-        self.__requestEnvelope.render()
+        self.__request_envelope.render()
 
     def _build_proxy_dict(self) -> dict:
         if self.proxy_url:
@@ -391,6 +388,11 @@ class Response:
             self.__bsResponse = BeautifulSoup(self.text, "xml")
         else:
             self.__bsResponse = BeautifulSoup(self.text, "lxml")
+
+        # Attributes that are evaluated lazy
+        self.__simple_faults = None
+        self.__simple_outputs = None
+
         self.outputs = tuple()
         self.faults = tuple()
         faults = list()
@@ -476,9 +478,7 @@ class Response:
         instead of simple_outputs.
         :return: dict
         """
-        try:
-            return self.__simple_outputs
-        except AttributeError:
+        if self.__simple_outputs is None:
             self.__client.log("Starting recursive consolidation of outputs", 4)
             simple_outputs = dict()
             for output in self.outputs:
@@ -486,7 +486,7 @@ class Response:
                     self._recursive_extract_significant_children(child, simple_outputs)
             self.__simple_outputs = simple_outputs
             self.__client.log("Significant outputs identified: {0}".format(simple_outputs), 5)
-            return self.__simple_outputs
+        return self.__simple_outputs
 
     @property
     def simple_faults(self) -> dict:
@@ -495,9 +495,7 @@ class Response:
         :return: dict
         """
 
-        try:
-            return self.__simple_faults
-        except AttributeError:
+        if self.__simple_faults is None:
             self.__client.log("Starting recursive consolidation of faults", 4)
             simple_faults = dict()
             for fault in self.faults:
@@ -505,7 +503,7 @@ class Response:
                     self._recursive_extract_significant_children(child, simple_faults)
             self.__simple_faults = simple_faults
             self.__client.log("Significant faults identified: {}".format(simple_faults), 5)
-            return self.__simple_faults
+        return self.__simple_faults
 
     @staticmethod
     def _recursive_extract_significant_children(bsElement: Tag, d: dict, parent=None) -> None:

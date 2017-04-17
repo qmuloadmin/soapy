@@ -18,6 +18,7 @@ class Wsdl(Log):
 
     constructor_kwargs = ("proxy_url", "proxy_user", "proxy_pass", "secure", "version")
     supported_versions = (1.1, 1.2)
+    w3_schemas = ("http://www.w3.org/2001/XMLSchema",)
 
     def __init__(self, wsdl_location, tracelevel=1, **kwargs):
 
@@ -39,6 +40,7 @@ class Wsdl(Log):
         self.__proxy_user = ""
         self.__proxy_pass = ""
         self.__schemas = None
+        self.__ns_name_cache = {}
         self.wsdl_url = wsdl_location
         for each in kwargs:
             if each in self.constructor_kwargs:
@@ -46,8 +48,16 @@ class Wsdl(Log):
             else:
                 raise ValueError("Unexpected keyword argument for {} initializer, {}".format(self.__name__, each))
 
-        self._download_wsdl(wsdl_location)
+        # Attributes that are evaluated lazy. Initializing to None to indicate they need evaluated on demand
+        self.__wsdl = None
+        self.__soup = None
+        self.__wsdlFile = None
+        self.__services = None
+        self.__schemas = None
+        self.__namespace = None
 
+        # Download the wsdl last as it relies on attributes set above
+        self._download_wsdl(wsdl_location)
 
     @property
     def version(self) -> float:
@@ -108,32 +118,25 @@ class Wsdl(Log):
 
     @property
     def wsdl(self) -> Tag:
-        try:
-            return self.__wsdl
-        except AttributeError:
+        if self.__wsdl is None:
             self.log('Getting root definitions of WSDL', 5)
             self.__wsdl = self.soup("definitions", recursive=False)[0]
-            return self.__wsdl
+        return self.__wsdl
 
     @property
     def soup(self) -> Tag:
-        try:
-            return self.__soup
-        except AttributeError:
+        if self.__soup is None:
             self.log("Parsing WSDL file and rendering Element Tree", 5)
             with open(self.wsdlFile) as f:
                 self.__soup = BeautifulSoup(f, "xml")
             os.remove(self.wsdlFile)
-            return self.__soup
+        return self.__soup
 
     @property
     def wsdlFile(self) -> str:
 
         """ Create a temporary file, handling overlap in the off chance it already exists """
-
-        try:
-            return self.__wsdlFile
-        except AttributeError:
+        if self.__wsdlFile is None:
             self.log("Initializing wsdl file cache", 5)
             f = str(os.getpid()) + ".temp"
 
@@ -141,28 +144,23 @@ class Wsdl(Log):
                 f = str(time.time()) + f
             self.log("Set wsdlFile for instance to cache: {0}".format(f), 4)
             self.__wsdlFile = f
-            return self.__wsdlFile
+        return self.__wsdlFile
 
     @property
     def services(self) -> tuple:
 
         """ The list of services available. The list will contain soapy.Service objects """
-
-        try:
-            return self.__services
-        except AttributeError:
+        if self.__services is None:
             self.log("Initializing list of services with services defined in WSDL", 5)
             services = list()
             for service in self.wsdl('service', recursive=False):
                 services.append(Service(service, self))
             self.__services = tuple(services)
-            return self.__services
+        return self.__services
 
     @property
     def schemas(self) -> tuple:
-        if self.__schemas is not None:
-            return self.__schemas
-        else:
+        if self.__schemas is None:
             schemas = list()
             types = self.wsdl('types', recursive=False)
             self.log("Building list of schemas from root definitions", 4)
@@ -175,15 +173,13 @@ class Wsdl(Log):
                 self.log("Importing root-level schemas", 5)
                 schemas.extend(self._import_schemas(self.wsdl))
             self.__schemas = tuple(schemas)
-            return self.__schemas
+        return self.__schemas
 
     @property
     def namespace(self) -> Namespace:
-        try:
-            return self.__namespace
-        except AttributeError:
+        if self.__namespace is None:
             self.__namespace = Namespace(self.wsdl, self.log)
-            return self.__namespace
+        return self.__namespace
 
     def _append_extend_schemas(self, soup, schemas: list, contructor_args: tuple):
         for addSchema in soup("schema", recursive=False):
@@ -280,7 +276,8 @@ class Wsdl(Log):
         except AttributeError:
             is_local = True
 
-        ignore_types = ("attribute",)
+        # Any is currently unsupported. Technically, in a crunch, a plugin could generate the elements.
+        ignore_types = ("attribute", "any")
 
         if element.name in ignore_types:
             # These types do not need represented in the types model
@@ -367,19 +364,42 @@ class Wsdl(Log):
                         target_ns = self._find_namespace(ns)
                     break
 
+        # If the target_ns is the XSD from w3.org, we don't need to bother searching for it; we won't find it
+        # as these types are considered "built in" to the WSDL standard, and we don't do type enforcement anyway
+        if target_ns in self.w3_schemas:
+            return None
+
+        def scan_schema() -> bool:
+            for child in schema.bs_element.children:
+                try:
+                    self.__ns_name_cache[target_ns][child["name"]] = (child, schema)
+                    if name == child["name"]:
+                        return True
+                except (KeyError, TypeError):
+                    pass
+            return False
+
         self.log("Type resides in namespace of {0}".format(target_ns), 5)
-        for schema in self.schemas:
-            if schema.name == target_ns:
-                self.log("Found schema matching namespace of {0}:{1}".format(ns, schema.name), 5)
-                tags = schema.bs_element("", {"name": name}, recursive=False)
-                if len(tags) > 0:
-                    return self.type_factory(tags[0], schema)
-            elif not target_ns:
-                self.log("Unable to identify target namepsace! This is probably due to a bug in underlying modules. "
-                         + "First global match will be used", 1)
-                tags = schema.bs_element("", {"name": name}, recursive=False)
-                if len(tags) > 0:
-                    return self.type_factory(tags[0], schema)
+        if target_ns not in self.__ns_name_cache:
+            self.__ns_name_cache[target_ns] = {}
+        if name not in self.__ns_name_cache[target_ns]:
+            for schema in self.schemas:
+                if schema.name == target_ns:
+                    self.log("Found schema matching namespace of {0}:{1}".format(ns, schema.name), 5)
+                    result = scan_schema()
+                    if result:
+                        break
+
+                elif not target_ns:
+                    self.log("Unable to identify target namespace! This is probably due to a bug in xml modules. "
+                             + "First global match will be used", 1)
+                    tags = schema.bs_element("", {"name": name}, recursive=False)
+                    if len(tags) > 0:
+                        self.__ns_name_cache[target_ns][name] = (tags[0], schema)
+                        break
+
+        if name in self.__ns_name_cache[target_ns]:
+            return self.type_factory(*self.__ns_name_cache[target_ns][name])
 
         self.log("Unable to find Type based on name {0}".format(name), 2)
         return None
