@@ -451,6 +451,10 @@ class Factory(Log):
                 inputs.append(self.root_element)
         self.items = inputs
 
+    def __getattr__(self, item):
+        """ Enable attribute references on Factory object itself to return attributes on root_element instead """
+        return getattr(self.root_element, item)
+
     def __str__(self):
         return str(self.root_element)
 

@@ -1,3 +1,5 @@
+""" The early beginnings of a test suite that doesn't use external resources """
+
 import unittest
 
 from bs4 import BeautifulSoup
@@ -6,8 +8,6 @@ from requests.exceptions import ConnectionError
 
 from soapy.client import Client
 from soapy.plugins import Doctor
-
-""" The early beginnings of a test suite that doesn't use external resources """
 
 
 class AuthTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class InputTests(unittest.TestCase):
         self.client = Client("file://sample.wsdl", 2, "getBank")
         self.assertEqual(str(self.client.inputs[0]), '<getBank >\r\n |   <blz >None</blz>\r\n</getBank>',
                          "InputFactory to-string should return correct null value representation")
-        self.client.inputs[0].root_element.blz.value = "Foo"
+        self.client.inputs[0].blz.value = "Foo"
         self.assertEqual(str(self.client.inputs[0]), '<getBank >\r\n |   <blz >Foo</blz>\r\n</getBank>',
                          "InputFactory to-string should return correct 'Foo' value representation")
 
@@ -61,7 +61,7 @@ class RenderTests(unittest.TestCase):
     def compare(self, version, control):
         version = str(version)
         self.client = Client("file://sample.wsdl", 2, "getBank", version=version)
-        self.client.inputs[0].root_element.blz.value = "test"
+        self.client.inputs[0].blz.value = "test"
         test_soup = BeautifulSoup(str(self.client.request_envelope), "xml")
         control_soup = BeautifulSoup(control, "xml")
         self.assertEqual(test_soup("Envelope")[0].attrs, control_soup("Envelope")[0].attrs,
@@ -88,7 +88,7 @@ class PluginTests(unittest.TestCase):
 
     def setUp(self):
         self.client = Client("file://sample.wsdl", 2, "getBank")
-        self.client.inputs[0].root_element.blz.value = "test"
+        self.client.inputs[0].blz.value = "test"
         self.client.location = "http://examplehost/fakeserver"
 
     location = "http://examplehost/service.asp"
