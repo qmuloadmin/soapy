@@ -6,13 +6,15 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from soapy import Log
 from soapy.wsdl.element import *
 from soapy.wsdl.model import *
 from soapy.wsdl.types import *
 
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
-class Wsdl(Log):
+
+class Wsdl:
     """ Class reads in WSDL and forms various child objects held together by this parent class
     Which essentially converts wsdl objects inside 'definitions' into Python native objects """
 
@@ -20,7 +22,7 @@ class Wsdl(Log):
     supported_versions = (1.1, 1.2)
     w3_schemas = ("http://www.w3.org/2001/XMLSchema",)
 
-    def __init__(self, wsdl_location, tracelevel=1, **kwargs):
+    def __init__(self, wsdl_location, **kwargs):
 
         """ wsdl_location is FQDN and URL of WSDL, must include protocol, e.g. http/file
         If caching behavior is desired (to load native python objects instead of parsing
@@ -33,7 +35,6 @@ class Wsdl(Log):
         :keyword version: An integer representing the SOAP version (1.1 or 1.2) of the request. Default 1.1
         """
 
-        super().__init__(tracelevel)
         self.secure = True
         self.__version = 1.1
         self.__proxy_url = ""
@@ -89,7 +90,7 @@ class Wsdl(Log):
 
     @proxy_user.setter
     def proxy_user(self, user: str):
-        self.log("Setting the proxy user to '{}'".format(user), 5)
+        logger.debug("Setting the proxy user to '{}'".format(user))
         self.__proxy_user = user
         if self.__proxy_pass != "" and self.__proxy_url != "":
             self._replace_pxy()
@@ -100,7 +101,7 @@ class Wsdl(Log):
 
     @proxy_pass.setter
     def proxy_pass(self, p: str):
-        self.log("Setting the proxy password with provided value".format(p), 5)
+        logger.debug("Setting the proxy password with provided value".format(p))
         self.__proxy_pass = p
         if self.__proxy_user != "" and self.__proxy_url != "":
             self._replace_pxy()
@@ -109,7 +110,7 @@ class Wsdl(Log):
     def proxies(self) -> dict:
         proxies = {}
         if self.proxy_url != "":
-            self.log("Setting proxy to {}".format(self.proxy_url.replace(self.__proxy_pass, "***")), 5)
+            logger.debug("Setting proxy to {}".format(self.proxy_url.replace(self.__proxy_pass, "***")))
             proxies = {
                 "http": self.proxy_url,
                 "https": self.proxy_url,
@@ -119,14 +120,14 @@ class Wsdl(Log):
     @property
     def wsdl(self) -> Tag:
         if self.__wsdl is None:
-            self.log('Getting root definitions of WSDL', 5)
+            logger.debug('Getting root definitions of WSDL')
             self.__wsdl = self.soup("definitions", recursive=False)[0]
         return self.__wsdl
 
     @property
     def soup(self) -> Tag:
         if self.__soup is None:
-            self.log("Parsing WSDL file and rendering Element Tree", 5)
+            logger.debug("Parsing WSDL file and rendering Element Tree")
             with open(self.wsdlFile) as f:
                 self.__soup = BeautifulSoup(f, "xml")
             os.remove(self.wsdlFile)
@@ -137,12 +138,12 @@ class Wsdl(Log):
 
         """ Create a temporary file, handling overlap in the off chance it already exists """
         if self.__wsdlFile is None:
-            self.log("Initializing wsdl file cache", 5)
+            logger.debug("Initializing wsdl file cache")
             f = str(os.getpid()) + ".temp"
 
             if os.path.exists(f):
                 f = str(time.time()) + f
-            self.log("Set wsdlFile for instance to cache: {0}".format(f), 4)
+            logger.info("Set wsdlFile for instance to cache: {0}".format(f))
             self.__wsdlFile = f
         return self.__wsdlFile
 
@@ -151,7 +152,7 @@ class Wsdl(Log):
 
         """ The list of services available. The list will contain soapy.Service objects """
         if self.__services is None:
-            self.log("Initializing list of services with services defined in WSDL", 5)
+            logger.debug("Initializing list of services with services defined in WSDL")
             services = list()
             for service in self.wsdl('service', recursive=False):
                 services.append(Service(service, self))
@@ -163,14 +164,14 @@ class Wsdl(Log):
         if self.__schemas is None:
             schemas = list()
             types = self.wsdl('types', recursive=False)
-            self.log("Building list of schemas from root definitions", 4)
+            logger.info("Building list of schemas from root definitions")
             # Some WSDLs defined schemas/types inside the types tag
             # Others have no types tag and import from definitions
             # Handle both cases, here
             if len(types) == 1:
                 self._append_extend_schemas(types[0], schemas, (None, True))
             else:
-                self.log("Importing root-level schemas", 5)
+                logger.debug("Importing root-level schemas")
                 schemas.extend(self._import_schemas(self.wsdl))
             self.__schemas = tuple(schemas)
         return self.__schemas
@@ -178,15 +179,13 @@ class Wsdl(Log):
     @property
     def namespace(self) -> Namespace:
         if self.__namespace is None:
-            self.__namespace = Namespace(self.wsdl, self.log)
+            self.__namespace = Namespace(self.wsdl)
         return self.__namespace
 
     def _append_extend_schemas(self, soup, schemas: list, contructor_args: tuple):
         for addSchema in soup("schema", recursive=False):
             schemas.append(Schema(addSchema, self, *contructor_args))
-            self.log("Appended schema with name '{}' to list of schemas for this WSDL"
-                     .format(schemas[-1].name),
-                     5)
+            logger.debug("Appended schema with name '{}' to list of schemas for this WSDL".format(schemas[-1].name))
             schemas.extend(self._import_schemas(addSchema))
 
     def _import_schemas(self, schema) -> list:
@@ -205,7 +204,7 @@ class Wsdl(Log):
         return schemas
 
     def _replace_pxy(self):
-        self.log("Building proxy URL with credentials", 5)
+        logger.debug("Building proxy URL with credentials")
         self.__proxy_url = sub(r"(https?://)(\w)",
                                r"\1{}:{}@\2".format(self.__proxy_user, self.__proxy_pass),
                                self.__proxy_url)
@@ -215,19 +214,19 @@ class Wsdl(Log):
         This is simpler than implementing or requiring a package. Yield lines if it's a file, otherwise yield the
         entire text response. Not ideal but no easy way to yeild from web resource """
         if url.startswith("file://"):
-            self.log("Reading file from {}".format(url), 3)
+            logger.info("Reading file from {}".format(url))
             wsdl_location = url.replace("file://", "")
             with open(wsdl_location) as in_file:
                 for line in in_file:
                     yield line
         elif url.startswith("http://"):
-            self.log("Downloading file from {}".format(url), 3)
+            logger.info("Downloading file from {}".format(url))
             yield requests.get(url, proxies=self.proxies).text
         elif url.startswith("https://"):
-            self.log("Downloading file from {} with secure={}".format(url, self.secure), 3)
+            logger.info("Downloading file from {} with secure={}".format(url, self.secure))
             yield requests.get(url, verify=self.secure, proxies=self.proxies).text
         else:
-            self.log("Unsupported protocol for location: {0}".format(url), 0)
+            logger.critical("Unsupported protocol for location: {0}".format(url))
             raise ValueError("Unsupported protocol for WSDL location: {0}".format(url))
 
     def _download_wsdl(self, url):
@@ -259,7 +258,7 @@ class Wsdl(Log):
             url = ref_dir + url
         else:
             url = urljoin(self.wsdl_url, url)
-        self.log("Importing schema from url: {0}".format(url), 5)
+        logger.debug("Importing schema from url: {0}".format(url))
         response = "".join(line for line in self._get_or_open_resource(url))
         schema = BeautifulSoup(response, "xml")
         return schema
@@ -305,15 +304,15 @@ class Wsdl(Log):
             raise NotImplementedError("XML Element Type <{0}> not yet implemented".format(element.name))
 
     def _find_namespace(self, ns) -> str:
-        self.log("Searching for namespace with id '{0}' in all locations".format(ns), 5)
+        logger.debug("Searching for namespace with id '{0}' in all locations".format(ns))
         try:
             target_ns = self.namespace.resolve_namespace(ns)
-            self.log("Found namespace defined in Definitions: {0}".format(target_ns), 5)
+            logger.debug("Found namespace defined in Definitions: {0}".format(target_ns))
         except KeyError:
             for schema in self.schemas:
                 try:
                     target_ns = schema.namespace.resolve_namespace(ns)
-                    self.log("Found namespace defined in schema: {0}".format(target_ns), 5)
+                    logger.debug("Found namespace defined in schema: {0}".format(target_ns))
                     break
                 except KeyError:
                     pass
@@ -338,7 +337,7 @@ class Wsdl(Log):
         # If no identifier is provided, then we know it must be in the targetNs provided. If targetNs is not
         # provided, then it's defined within the Wsdl definitions, or in a local schema not in the imported schemas.
 
-        self.log("Searching for type with name {0} in namespace {1}".format(name, target_ns), 5)
+        logger.debug("Searching for type with name {0} in namespace {1}".format(name, target_ns))
         try:
             ns, name = name.split(":")
         except ValueError:
@@ -356,8 +355,8 @@ class Wsdl(Log):
                 if schema.name == target_ns:
                     if not schema.is_local:
                         if schema.namespace.resolve_namespace(ns) == target_ns:
-                            self.log("Remote type with ns of '{0}' confirmed to be defined in parent schema"
-                                     .format(ns), 5)
+                            logger.debug("Remote type with ns of '{0}' confirmed to be defined in parent schema"
+                                         .format(ns))
                         else:
                             target_ns = self._find_namespace(ns)
                     else:
@@ -379,20 +378,20 @@ class Wsdl(Log):
                     pass
             return False
 
-        self.log("Type resides in namespace of {0}".format(target_ns), 5)
+        logger.debug("Type resides in namespace of {0}".format(target_ns))
         if target_ns not in self.__ns_name_cache:
             self.__ns_name_cache[target_ns] = {}
         if name not in self.__ns_name_cache[target_ns]:
             for schema in self.schemas:
                 if schema.name == target_ns:
-                    self.log("Found schema matching namespace of {0}:{1}".format(ns, schema.name), 5)
+                    logger.debug("Found schema matching namespace of {0}:{1}".format(ns, schema.name))
                     result = scan_schema()
                     if result:
                         break
 
                 elif not target_ns:
-                    self.log("Unable to identify target namespace! This is probably due to a bug in xml modules. "
-                             + "First global match will be used", 1)
+                    logger.error("Unable to identify target namespace! This is probably due to a bug in xml modules. "
+                                 + "First global match will be used")
                     tags = schema.bs_element("", {"name": name}, recursive=False)
                     if len(tags) > 0:
                         self.__ns_name_cache[target_ns][name] = (tags[0], schema)
@@ -401,5 +400,5 @@ class Wsdl(Log):
         if name in self.__ns_name_cache[target_ns]:
             return self.type_factory(*self.__ns_name_cache[target_ns][name])
 
-        self.log("Unable to find Type based on name {0}".format(name), 2)
+        logger.warning("Unable to find Type based on name {0}".format(name))
         return None

@@ -1,12 +1,15 @@
+import logging
 from abc import ABCMeta, abstractmethod, abstractproperty
 from copy import deepcopy
 from xml.sax.saxutils import escape
 
-from soapy import Log
 from soapy.inputs import Repeatable
 
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
-class Marshaller(Log, metaclass=ABCMeta):
+
+class Marshaller(metaclass=ABCMeta):
 
     """ Base class for marshalling data from Wsdl class to SOAP envelope """
     
@@ -19,18 +22,17 @@ class Marshaller(Log, metaclass=ABCMeta):
     def render(self):
         
         """ Resolve dependencies, namespaces, and populate xml string """
-    
+
 
 class Envelope(Marshaller):
 
     """ Class to build the envelope from InputOptions class instance from soapy.client """
 
     def __init__(self, client):
-        super().__init__(client.tl)
         self.__parts = client.operation.input.parts
         self.__schema = self.parts[0].type.schema
         self.__version = client.wsdl.version
-        self.log("Initializing new Envelope", 4)
+        logger.info("Initializing new Envelope")
         self.used_ns = dict()
         self.used_ns["tns"] = self.schema.name
         self.__targetNs = "tns"
@@ -59,21 +61,21 @@ class Envelope(Marshaller):
         name = self.target_ns + str(self.__ns_counter)
         self.used_ns[name] = definition
         self.__tns_map[object] = name
-        self.log("Registered new namespace of {0}".format(name), 5)
+        logger.debug("Registered new namespace of {0}".format(name))
         self.__ns_counter += 1
 
     def render(self):
         self.header.render()
-        self.log("Header rendered successfully", 5)
+        logger.debug("Header rendered successfully")
         self.body.render()
-        self.log("Body rendered successfully", 5)
+        logger.debug("Body rendered successfully")
         for key, item in self.used_ns.items():
             self.__xml += """xmlns:{0}="{1}" """.format(key, item)
         self.__xml += ">\n"
         self.__xml += self.header.xml
         self.__xml += self.body.xml
         self.__xml += "</{0}:Envelope>".format(self.soap_ns)
-        self.log("Envelope rendered successfully", 4)
+        logger.info("Envelope rendered successfully")
 
     @property
     def parts(self):
@@ -141,7 +143,7 @@ class Header(Marshaller):
     def __init__(self, envelope: Envelope):
 
         self.__parent = envelope
-        self.log("Initializing new Header", 5)
+        logger.debug("Initializing new Header")
         self.__xml = "<{0}:Header/>\n".format(envelope.soap_ns)
 
     @property
@@ -151,9 +153,6 @@ class Header(Marshaller):
     @property
     def xml(self):
         return self.__xml
-
-    def log(self, message, tl):
-        self.parent.log(message, tl)
 
     def render(self):
 
@@ -171,10 +170,10 @@ class Body(Marshaller):
 
         self.__xml = "<{0}:Body>\n".format(envelope.soap_ns)
         self.__parent = envelope
-        self.log("Initializing new Body", 5)
+        logger.debug("Initializing new Body")
         self.__elements = tuple([Element(envelope, part.type, i)
                                  for i, part in enumerate(self.parent.parts)])
-        self.log("All Elements initialized successfully", 5)
+        logger.debug("All Elements initialized successfully")
 
     @property
     def parent(self):
@@ -188,14 +187,11 @@ class Body(Marshaller):
     def xml(self):
         return self.__xml
 
-    def log(self, message, tl):
-        self.parent.log(message, tl)
-
     def render(self):
-        self.log("Starting process of rendering all children Elements", 5)
+        logger.debug("Starting process of rendering all children Elements")
         for element in self.elements:
             element.render()
-        self.log("All child Elements rendered successfully", 5)
+        logger.debug("All child Elements rendered successfully")
         for element in self.elements:
             self.__xml += element.xml
         self.__xml += "</{0}:Body>\n".format(self.parent.soap_ns)
@@ -219,7 +215,7 @@ class Element(Marshaller):
 
         self.__top_level = top_level
         self.__parent = envelope
-        self.log("Initializing new Element based on {0}".format(element.name), 5)
+        logger.debug("Initializing new Element based on {0}".format(element.name))
         self.__part = part
         self.__definition = element
         self.children_have_values = False
@@ -258,7 +254,7 @@ class Element(Marshaller):
         return self.__definition
 
     @property
-    def inputObj(self):
+    def input_obj(self):
         return self.__inputObj
 
     @property
@@ -285,9 +281,6 @@ class Element(Marshaller):
     def children(self) -> tuple:
         return self.__children
 
-    def log(self, message, tl):
-        self.parent.log(message, tl)
-
     def children_significant(self) -> bool:
 
         """
@@ -296,7 +289,7 @@ class Element(Marshaller):
         :return: bool
         """
 
-        if self.inputObj.setable and self.inputObj.value is not None:
+        if self.input_obj.setable and self.input_obj.value is not None:
             return True
         for each in self.children:
             if each.children_significant() is True:
@@ -309,7 +302,7 @@ class Element(Marshaller):
         otherwise, return False and do nothing
         :return: bool """
 
-        if self.inputObj.setable and self.inputObj.value is None:
+        if self.input_obj.setable and self.input_obj.value is None:
             if self.definition.min_occurs == "0":
                 self.__open_tag = ""
             elif self.definition.nillable == "true":
@@ -317,9 +310,9 @@ class Element(Marshaller):
             else:
                 self.__open_tag = self.open_tag.replace('>', '/>\n')
             self.__xml = self.open_tag
-            self.log("Processed null value for element {0}".format(self.definition.name), 5)
+            logger.debug("Processed null value for element {0}".format(self.definition.name))
             return True
-        elif not self.inputObj.setable and not self.children_have_values:
+        elif not self.input_obj.setable and not self.children_have_values:
             return True
         return False
 
@@ -327,8 +320,7 @@ class Element(Marshaller):
 
         """ Render inner xml appropriately for containing a single (non-Array) value """
 
-        self.log("Setting value of element {0} to '{1}'"
-                 .format(self.definition.name, value), 5)
+        logger.debug("Setting value of element {0} to '{1}'".format(self.definition.name, value))
         self.__inner_xml = escape(str(value))
         self.__xml = self.open_tag + self.inner_xml + self.close_tag
 
@@ -339,10 +331,9 @@ class Element(Marshaller):
          render each item as inner xml in between its own open and close tags
         """
 
-        self.log("Adding values from list {0} to element {1}"
-                 .format(iter, self.definition.name), 5)
+        logger.debug("Adding values from list {0} to element {1}".format(iter, self.definition.name))
         for each in iter:
-            self.log("Rendering value {0}".format(each), 5)
+            logger.debug("Rendering value {0}".format(each))
             self.__xml += self.open_tag + escape(str(each)) + self.close_tag
 
     def _process_collection_values(self):
@@ -351,7 +342,7 @@ class Element(Marshaller):
          children based on that collection, iteratively. """
 
         done = False
-        collection = deepcopy(self.inputObj.collection)  # copy collections because we're going to modify it (pop)
+        collection = deepcopy(self.input_obj.collection)  # copy collections because we're going to modify it (pop)
         while not done:
             iter_collection = {}
             self.__inner_xml = ""
@@ -381,8 +372,8 @@ class Element(Marshaller):
         self.definition.update(self)
         # Render attributes, and then the close brace '>'
         for attr in self.definition.attributes:
-            if self.inputObj[attr.name].value is not None:
-                self.__open_tag += ' {0}={1}'.format(attr.name, self.inputObj[attr.name].value)
+            if self.input_obj[attr.name].value is not None:
+                self.__open_tag += ' {0}={1}'.format(attr.name, self.input_obj[attr.name].value)
         self.__open_tag += ">"
 
     def render(self, collection=dict()) -> None:
@@ -402,14 +393,14 @@ class Element(Marshaller):
 
         # Override input object value from collection if matches current element name.
         try:
-            self.inputObj.value = collection[self.inputObj.name]
-            self.log("Using supplied collection value {0}".format(self.inputObj.value), 5)
+            self.input_obj.value = collection[self.input_obj.name]
+            logger.debug("Using supplied collection value {0}".format(self.input_obj.value))
         except KeyError:
             pass
 
         # Short circuit if element is empty and optional or nillable, and has no children
 
-        if self.inputObj.setable and self.inputObj.inner_xml is None:
+        if self.input_obj.setable and self.input_obj.inner_xml is None:
             if self._process_null_values():
                 return
 
@@ -426,7 +417,7 @@ class Element(Marshaller):
         # If this is a collection element, then use alternative render for children to the entire collection can be
         # rendered appropriately
 
-        if not self.inputObj.is_collection or len(self.inputObj.collection.keys()) == 0:
+        if not self.input_obj.is_collection or len(self.input_obj.collection.keys()) == 0:
             for each in self.children:
                 each.render()
                 if each.children_significant() is True:
@@ -443,15 +434,15 @@ class Element(Marshaller):
 
         # Update inner xml, either using child xml values, innerXml from inputObj, or the value from inputObj
 
-        if self.inputObj.inner_xml is not None:
-            self.__inner_xml = self.inputObj.inner_xml
+        if self.input_obj.inner_xml is not None:
+            self.__inner_xml = self.input_obj.inner_xml
             self.__xml = self.open_tag + self.inner_xml + self.close_tag
-        elif self.inputObj.setable:
-            if isinstance(self.inputObj, Repeatable):
-                self._process_iter_values(self.inputObj.values)
+        elif self.input_obj.setable:
+            if isinstance(self.input_obj, Repeatable):
+                self._process_iter_values(self.input_obj.values)
             else:
                 # Only a single value should have been provided (will get type-casted to string)
-                self._process_single_value(self.inputObj.value)
+                self._process_single_value(self.input_obj.value)
         else:  # if this is only a container for child elements
             self.__inner_xml += "\n"
             for each in self.children:

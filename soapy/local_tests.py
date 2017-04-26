@@ -103,14 +103,14 @@ class PluginTests(unittest.TestCase):
 
         """ A noop doctor """
 
-        def __call__(self, client, xml, tl=-1):
+        def __call__(self, client, xml):
             return xml
 
     class Loc(Doctor):
 
         """ A doctor that changes the location """
 
-        def __call__(self, client, xml, tl=-1):
+        def __call__(self, client, xml):
             client.location = PluginTests.location
             return xml
 
