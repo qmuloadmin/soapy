@@ -78,6 +78,14 @@ class Client:
         }
         logging.basicConfig(level=levels[tl])
 
+        # Attributes that are evaluated lazy
+        self.__inputs = None
+        self.__service = None
+        self.__operation = None
+        self.__schema = None
+        self.__request_envelope = None
+        print(self.__dict__)
+
         # Initialize some default values
 
         self.__username = None
@@ -107,12 +115,6 @@ class Client:
             wsdl_location,
             **dict((key, value) for key, value in kwargs.items() if key in Wsdl.constructor_kwargs)
         )
-
-        # Attributes that are evaluated lazy
-        self.__service = None
-        self.__operation = None
-        self.__schema = None
-        self.__request_envelope = None
 
         # If either operation or service is set, initialize them to starting values
 
@@ -235,7 +237,7 @@ class Client:
             logger.info("Set client operation to {0}".format(self.operation))
             # Clear any input object, as a new operation will have a new input object
             try:
-                del self.__inputs
+                self.__inputs = None
             except AttributeError:
                 " Do nothing, as this means inputs were never generated for the previous operation "
 
@@ -267,18 +269,16 @@ class Client:
         inputs is a tuple of iterable soapy.client.inputs.Factory objects. In most cases, there is only one possible
         input message for a given operation, in which case the tuple will have only 1 element.
         """
-        try:
-            return self.__inputs
-        except AttributeError:
+        if self.__inputs is None:
             try:
                 inputs = list()
                 logger.info("Building list of inputs for operation {0}".format(self.operation.name))
                 for each in self.operation.input.parts:
                     inputs.append(InputFactory(each.type))
                 self.__inputs = tuple(inputs)
-                return self.__inputs
             except AttributeError:
                 raise RuntimeError("Must set operation before inputs can be determined")
+        return self.__inputs
 
     @property
     def request_envelope(self):

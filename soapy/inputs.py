@@ -213,6 +213,18 @@ class Container(Base, AttributableMixin, RenderOptionsMixin):
         self.__setable = False
         self.__children = list()
 
+    def __setattr__(self, key, value):
+        """ implementation allows settings child Element values without having to reference the .value attribute
+        on the Element, but can set the Element inside the parent Container and the .value attribute will be set
+        """
+        if key in self.__dict__:
+            if isinstance(self.__dict__[key], Element):
+                self.__dict__[key].value = value
+            else:
+                self.__dict__[key] = value
+        else:
+            self.__dict__[key] = value
+
     def __str__(self):
         return "{5}{4}<{0} {1}>{3}{2}{3}{4}</{0}>".format(self.name, " ".join(str(attr) for attr in self.attributes),
                                                           "{}".format(linesep).join(
@@ -260,6 +272,13 @@ class Repeatable(Base):
 
     def __getitem__(self, item: int) -> Element:
         return self.__elements[item]
+
+    def __setitem__(self, key, value):
+        if isinstance(key, int):
+            self.__elements[key].value = value
+        else:
+            raise ValueError("Subscript values for {} object must be integers. Invalid: {}"
+                             .format(self.__class__.__name__, value))
 
     def __str__(self):
         return "{4}{1}<!--- Repeatable: {0} --->{3}{2}".format(self.name,
