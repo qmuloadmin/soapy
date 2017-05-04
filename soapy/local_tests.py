@@ -7,7 +7,7 @@ from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError
 
 from soapy.client import Client
-from soapy.plugins import Doctor
+from soapy.plugins import Doctor, SOAPAttachmentDoctor
 
 
 class AuthTests(unittest.TestCase):
@@ -126,3 +126,17 @@ class PluginTests(unittest.TestCase):
         self.failsafe(doc)
         self.assertEqual(self.client.location, self.location,
                          "Location should change correctly when Doctor plugin changes it")
+
+    def test_attachment_plugin(self):
+        doc = SOAPAttachmentDoctor([
+            {
+                "file": "sample.wsdl",
+            }
+        ])
+        self.failsafe(doc)
+        header, boundary = self.client.headers['Content-Type'].split(" boundary=")
+        boundary = boundary.replace('"', '')
+        self.assertTrue(header.startswith("multipart/related;"),
+                        "Attachment Doctor should set Content-Type header correctly")
+        self.assertTrue(boundary in self.client.request_envelope.xml,
+                        "Boundary should be correctly rendered in the request payload.")

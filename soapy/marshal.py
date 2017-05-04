@@ -1,9 +1,8 @@
 import logging
 from abc import ABCMeta, abstractmethod, abstractproperty
-from copy import deepcopy
 from xml.sax.saxutils import escape
 
-from soapy.inputs import Repeatable
+from soapy.inputs import Repeatable, Element as InputElement
 
 # Initialize logger for this module
 logger = logging.getLogger(__name__)
@@ -202,7 +201,7 @@ class Element(Marshaller):
     """ Class for representing an Element's properties in terms of SOAP request rendering. Heavily relies on interface
      from InputOptions to build properly. Can't be used with InputFactory class inputs. """
 
-    def __init__(self, envelope: Envelope, element, part: int, top_level=True):
+    def __init__(self, envelope: Envelope, element, part: int, top_level=True, input_obj=None):
 
         """
         :param envelope: The instance of the parent Envelope class for this element
@@ -218,11 +217,16 @@ class Element(Marshaller):
         logger.debug("Initializing new Element based on {0}".format(element.name))
         self.__part = part
         self.__definition = element
+        self.__children = tuple(
+            [Element(self.parent, child, self.part, False)
+             for child in self.definition.element_children]
+        )
         self.children_have_values = False
         self.__xml = ""
         self.__open_tag = ""
         self.__close_tag = ""
         self.__inner_xml = ""
+        self.should_be_rendered = True
 
         # Check to see if the schema of the element is the same as the body/envelope default tns.
         # If not, then we need to update the Envelope with a new xmlns definition and use a different
@@ -237,13 +241,37 @@ class Element(Marshaller):
 
         # Associate input obj from client with this Element rendering
 
-        self.__inputObj = None
-        for obj in self.parent.inputs[self.part].items:
-            if obj.ref is self.definition:
-                self.__inputObj = obj
-                break
-        # Render the open tag for this element before anything else is done
-        self.render_open_tag()
+        self.__input_obj = None
+        if input_obj is None:
+            for obj in self.parent.inputs[self.part].items:
+                if obj.ref is self.definition:
+                    self.__input_obj = obj
+                    break
+        else:
+            self.__input_obj = input_obj
+
+        # Repeatable types shouldn't be rendered under any circumstances, so immediately set to false
+        # And we need to add duplicate children with separate values for each child input.Element so they can
+        # be rendered individually
+        if isinstance(self.input_obj, Repeatable):
+            self.should_be_rendered = False
+            children = list()
+            for item in self.input_obj:
+                children.append(
+                    Element(
+                        self.parent,
+                        self.definition,
+                        self.part,
+                        False,
+                        item
+                    )
+                )
+            children.extend(self.children)
+            self.__children = tuple(children)
+
+        # Render the open tag for this element before anything else is done if should be rendered
+        if self.should_be_rendered:
+            self.render_open_tag()
 
     @property
     def part(self) -> int:
@@ -255,7 +283,7 @@ class Element(Marshaller):
 
     @property
     def input_obj(self):
-        return self.__inputObj
+        return self.__input_obj
 
     @property
     def parent(self) -> Envelope:
@@ -289,7 +317,8 @@ class Element(Marshaller):
         :return: bool
         """
 
-        if self.input_obj.setable and self.input_obj.value is not None:
+        if isinstance(self.input_obj, InputElement) \
+                and (self.input_obj.value is not None or not self.input_obj.all_attributes_empty):
             return True
         for each in self.children:
             if each.children_significant() is True:
@@ -303,16 +332,14 @@ class Element(Marshaller):
         :return: bool """
 
         if self.input_obj.setable and self.input_obj.value is None:
-            if self.definition.min_occurs == "0":
+            if self.definition.min_occurs == "0" and self.input_obj.all_attributes_empty:
                 self.__open_tag = ""
-            elif self.definition.nillable == "true":
+            elif self.definition.nillable == "true" and self.input_obj.all_attributes_empty:
                 self.__open_tag = self.open_tag.replace('>', ' {0}:nil="true" />\n'.format(self.parent.xml_ns))
             else:
                 self.__open_tag = self.open_tag.replace('>', '/>\n')
             self.__xml = self.open_tag
             logger.debug("Processed null value for element {0}".format(self.definition.name))
-            return True
-        elif not self.input_obj.setable and not self.children_have_values:
             return True
         return False
 
@@ -324,41 +351,6 @@ class Element(Marshaller):
         self.__inner_xml = escape(str(value))
         self.__xml = self.open_tag + self.inner_xml + self.close_tag
 
-    def _process_iter_values(self, iter) -> None:
-
-        """
-        When an element supports multiple values (maxOccurs > 1) and an iterable (non-string) is provided, we will
-         render each item as inner xml in between its own open and close tags
-        """
-
-        logger.debug("Adding values from list {0} to element {1}".format(iter, self.definition.name))
-        for each in iter:
-            logger.debug("Rendering value {0}".format(each))
-            self.__xml += self.open_tag + escape(str(each)) + self.close_tag
-
-    def _process_collection_values(self):
-
-        """ Extracts the zeroth element from each collection-key and builds a new, single value collection, then renders
-         children based on that collection, iteratively. """
-
-        done = False
-        collection = deepcopy(self.input_obj.collection)  # copy collections because we're going to modify it (pop)
-        while not done:
-            iter_collection = {}
-            self.__inner_xml = ""
-            try:
-                for key in collection.keys():
-                    iter_collection[key] = collection[key].pop()
-            except IndexError:
-                done = True
-            if done:
-                break
-            self.__xml += self.open_tag + "\n"
-            for child in self.children:
-                child.render(iter_collection)
-                self.__inner_xml += child.xml
-            self.__xml += self.inner_xml + self.close_tag
-
     def render_open_tag(self):
         # If elementForm for the schema and element is qualified, we need to print ns,
         # otherwise, only if it's the first element
@@ -366,8 +358,6 @@ class Element(Marshaller):
             self.__open_tag = "<{0}:{1}".format(self.tns, self.definition.name.strip())
         else:
             self.__open_tag = "<{0}".format(self.definition.name.strip())
-        self.__children = tuple([Element(self.parent, child, self.part, False)
-                                 for child in self.definition.element_children])
         # Call update to perform parent update consolidation from non-Element children
         self.definition.update(self)
         # Render attributes, and then the close brace '>'
@@ -376,27 +366,23 @@ class Element(Marshaller):
                 self.__open_tag += ' {0}={1}'.format(attr.name, self.input_obj[attr.name].value)
         self.__open_tag += ">"
 
-    def render(self, collection=dict()) -> None:
+    def render(self) -> None:
         """
         render performs numerous checks on the definition of the request element, which is defined in the WSDL,
         combined with the provided input object from the Client which called the Marshaller. For an Element, render
         will do tests to determine if the element is empty, and if so, render the correct representation of the tag
         as empty, otherwise it will render all children (using this same method on the child instance) and insert each
         child's xml as this element's inner_xml. For elements which contain multiple values, and which support such
-        (i.e. have the maxOccurs set to larger than 1), render will appropriately handle them. The collection optional
-        parameter is used by parent elements who support arrays of values, or collection, and defines the values
-        children should have as a whole, instead of individually.
-        param collection: The dictionary provided by parent objects who contain children elements that may be repeated
-        (herein referred to as collections)
+        (i.e. have the maxOccurs set to larger than 1), render will appropriately handle them. 
         :return:
         """
 
-        # Override input object value from collection if matches current element name.
-        try:
-            self.input_obj.value = collection[self.input_obj.name]
-            logger.debug("Using supplied collection value {0}".format(self.input_obj.value))
-        except KeyError:
-            pass
+        # Top level short circuit for input elements that aren't rendered -- like Repeatables and Collections
+        if not self.should_be_rendered:
+            for each in self.children:
+                each.render()
+                self.__xml += each.xml
+            return
 
         # Short circuit if element is empty and optional or nillable, and has no children
 
@@ -404,7 +390,7 @@ class Element(Marshaller):
             if self._process_null_values():
                 return
 
-        # Build the close tag so we can render multiple times if we are an array
+        # Build the close tag
 
         if (self.parent.schema.element_form == "qualified" and self.definition.form == "qualified") or self.__top_level:
             self.__close_tag = "</{0}:{1}>\n".format(self.tns, self.definition.name.strip())
@@ -417,14 +403,10 @@ class Element(Marshaller):
         # If this is a collection element, then use alternative render for children to the entire collection can be
         # rendered appropriately
 
-        if not self.input_obj.is_collection or len(self.input_obj.collection.keys()) == 0:
-            for each in self.children:
-                each.render()
-                if each.children_significant() is True:
-                    self.children_have_values = True
-        else:
-            self._process_collection_values()
-            return
+        for each in self.children:
+            each.render()
+            if each.children_significant() is True:
+                self.children_have_values = True
 
         # If all children are empty and aren't required, process null values to render element correctly, short circuit
 
@@ -437,12 +419,9 @@ class Element(Marshaller):
         if self.input_obj.inner_xml is not None:
             self.__inner_xml = self.input_obj.inner_xml
             self.__xml = self.open_tag + self.inner_xml + self.close_tag
-        elif self.input_obj.setable:
-            if isinstance(self.input_obj, Repeatable):
-                self._process_iter_values(self.input_obj.values)
-            else:
-                # Only a single value should have been provided (will get type-casted to string)
-                self._process_single_value(self.input_obj.value)
+        elif isinstance(self.input_obj, InputElement):
+            # Only a single value should have been provided (will get type-casted to string)
+            self._process_single_value(self.input_obj.value)
         else:  # if this is only a container for child elements
             self.__inner_xml += "\n"
             for each in self.children:

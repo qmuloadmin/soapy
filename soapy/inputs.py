@@ -54,15 +54,6 @@ class Base:
         self.__empty = state
 
     @property
-    def is_collection(self) -> bool:
-        """ A collection is a parent-level element that can be repeated. In other words, and element whose value
-        is other elements, but can be duplicated as a set. """
-        if not self.setable and self.repeatable:
-            return True
-        else:
-            return False
-
-    @property
     def inner_xml(self) -> str:
         """ Represents the xml of the element, including all children, values, etc. If set, then the value of the
         input will be ignored, as well as any child objects defined in the WSDL. Instead, the value of
@@ -151,6 +142,13 @@ class AttributableMixin:
     @property
     def attributes(self) -> tuple:
         return self.__attrs
+
+    @property
+    def all_attributes_empty(self) -> bool:
+        for attr in self.attributes:
+            if attr.value is not None:
+                return False
+        return True
 
     def keys(self):
         return tuple([attr.name for attr in self.attributes])
@@ -296,35 +294,6 @@ class Repeatable(Base):
         return self.__elements
 
     @property
-    def values(self) -> tuple:
-        """ A helper method to consolidate the element children's values into one parent-level list.
-        This is currently used by the quick-and-dirty marshalling process as a stop gap. However, it
-        prevents individual list elements from having different attributes. So, once the marshaller
-        classes can be updated to iterate through children elements properly, we can remove this method """
-        try:
-            return self.__values
-        except AttributeError:
-            values = list()
-            for child in self.elements:
-                if child.value is not None:
-                    values.append(child.value)
-            self.__values = tuple(values)
-            return self.__values
-
-    @property
-    def value(self):
-        """ A temporary hack to integrate with outdated marshaller. Will need to fix this in the future. Do not rely on
-        this method being available on Repeatable elements in the future. """
-        if len(self.values):
-            return self.values
-        else:
-            return None
-
-    @value.setter
-    def value(self, val):
-        self.__values = (val,)
-
-    @property
     def repeatable(self):
         return self.__repeatable
 
@@ -384,36 +353,6 @@ class Collection(Repeatable, Container):
     def __str__(self):
         return "{1}<!--- Repeatable: {0} --->{2}".format(self.name, self._str_indent, linesep) \
                + "{0}".format(linesep).join(str(el) for el in self.elements)
-
-    @property
-    def collection(self) -> dict:
-        """ A helper method to consolidate the element children's values into one parent-level dict.
-        This is currently used by the quick-and-dirty marshalling process as a stop gap. However, it
-        prevents individual collection children from having different attributes. So, once the marshaller
-        classes can be updated to iterate through children elements properly, we can remove this method
-        """
-
-        def walk_container(co):
-            for child in co.children:
-                if isinstance(child, Container):
-                    walk_container(child)
-                elif isinstance(child, Repeatable) and child[0].value is not None:
-                    try:
-                        self.__collection[child.name].append(child.values)
-                    except KeyError:
-                        self.__collection.update({child.name: [child.values]})
-                elif isinstance(child, Element) and child.value is not None:
-                    try:
-                        self.__collection[child.name].append(child.value)
-                    except KeyError:
-                        self.__collection.update({child.name: [child.value]})
-
-        self.__collection = {}
-
-        for container in self.elements:
-            walk_container(container)
-
-        return self.__collection
 
 
 class Attribute:

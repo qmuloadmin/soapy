@@ -84,7 +84,7 @@ class Client:
         self.__operation = None
         self.__schema = None
         self.__request_envelope = None
-        print(self.__dict__)
+        self.__port = None
 
         # Initialize some default values
 
