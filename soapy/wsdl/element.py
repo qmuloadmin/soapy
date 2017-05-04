@@ -1,18 +1,22 @@
-from bs4 import Tag
-
 """ Elements defined in this module are used by both WSDL elements (model) and SOAP elements (types)
  NOTE: The exception is Schema. I do not like its implementation and plan to fix it at some point. For now it's here
  for lack of a better place. """
+
+import logging
+
+from bs4 import Tag
+
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 
 class Namespace:
 
     """ Contains mapping to name and definition and allows dictionary-like reference """
 
-    def __init__(self, parent, log):
+    def __init__(self, parent):
         self.__parent = parent
-        self.log = log
-        self.log("Initializing Namespace object for element {0}".format(parent.name), 5)
+        logger.debug("Initializing Namespace object for element {0}".format(parent.name))
 
         # Values that are evaluated lazy
         self.__names = None
@@ -25,14 +29,13 @@ class Namespace:
     def names(self) -> tuple:
 
         if self.__names is None:
-            self.log("Initializing list of namespaces names for {0} element".format(self.parent.name), 5)
+            logger.debug("Initializing list of namespaces names for {0} element".format(self.parent.name))
             attrs = list()
             for key in self.parent.attrs.keys():
                 if key.startswith('xmlns'):
                     try:
                         attrs.append(key.split(":")[1])
-                        self.log("Found namespace '{0}'"
-                                 .format(key.split(":")[1]), 5)
+                        logger.info("Found namespace '{0}'".format(key.split(":")[1]))
                     except IndexError:
                         pass
             self.__names = tuple(attrs)
@@ -58,8 +61,7 @@ class Element:
         self.__parent = wsdl
         self.__schema = schema
         self.__is_local = is_local
-        self.log("Initialized {0} with name of {1}".format(
-            self.__bs_element.name, self.name), 4)
+        logger.info("Initialized {0} with name of {1}".format(self.__bs_element.name, self.name))
 
         # Values that are evaluated lazy
         self.__namespace = None
@@ -80,8 +82,7 @@ class Element:
         tag = cls.__name__
         tag = tag[:1].lower() + tag[1:]  # Lowercase the first letter of the class name
         ports = parent.wsdl(tag, recursive=False)
-        parent.log("Searching for {1} element with name matching {0}"
-                   .format(name, cls.__name__), 5)
+        logger.debug("Searching for {1} element with name matching {0}".format(name, cls.__name__))
         for port in ports:
             if port.get('name') == name:
                 return cls(port, parent)
@@ -113,13 +114,13 @@ class Element:
     @property
     def namespace(self) -> Namespace:
         if self.__namespace is None:
-            self.__namespace = Namespace(self.bs_element, self.log)
+            self.__namespace = Namespace(self.bs_element)
         return self.__namespace
 
     @property
     def children(self) -> tuple:
         if self.__children is None:
-            self.log("Retrieving list of children for Element {}".format(self.name), 5)
+            logger.debug("Retrieving list of children for Element {}".format(self.name))
             children = list()
             for each in self.bs_element.children:
                 if not isinstance(each, Tag):
@@ -130,9 +131,6 @@ class Element:
 
     def __str__(self):
         return str(self.__bs_element)
-
-    def log(self, message, tl):
-        self.parent.log(message, tl)
 
 
 class Schema(Element):

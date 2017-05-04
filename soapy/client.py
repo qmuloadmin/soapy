@@ -1,16 +1,20 @@
+import logging
+
 import requests
 from bs4 import BeautifulSoup, Tag
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError
 
 import soapy.marshal
-from soapy import Log
 from soapy.inputs import Factory as InputFactory
 from soapy.wsdl import Wsdl
-from soapy.wsdl.model import *
+from soapy.wsdl.model import Port, Service, Operation
+
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 
-class Client(Log):
+class Client:
     
     """ Class abstracts Wsdl data model and provides a simple API for providing input
     values for a given operation, and sending request. Works with Marshaller to 
@@ -35,8 +39,7 @@ class Client(Log):
     def __init__(self, wsdl_location: str, tl=0, operation=None, service=None, **kwargs):
         
         """ Provide a wsdl file location url, e.g. http://my.domain.com/some/service?wsdl or
-        file:///full/path/to.wsdl, a tracelevel for logging (0-5), and optionally pass in
-        a Service name, and an Operation.
+        file:///full/path/to.wsdl, and optionally pass in a Service name, and an Operation.
 
         :keyword location: The location (URL) of the web service. Overrides the location from the WSDL for the operation
         :keyword username: The username to authenticate to the web service, if needed
@@ -63,9 +66,25 @@ class Client(Log):
         by setting self.service and/or self.operation. This allows you to explore the wsdl
         and get a list of possible services and operations within each service """
 
-        # Initialize instance of Log using provided trace level
+        # Handle some backwards compat issues with tracelevel so logging level gets set based on tl provided
+        levels = {
+            -1: logging.NOTSET,
+            0: logging.CRITICAL,
+            1: logging.ERROR,
+            2: logging.WARNING,
+            3: logging.INFO,
+            4: logging.INFO,
+            5: logging.DEBUG
+        }
+        logging.basicConfig(level=levels[tl])
 
-        super().__init__(tl)
+        # Attributes that are evaluated lazy
+        self.__inputs = None
+        self.__service = None
+        self.__operation = None
+        self.__schema = None
+        self.__request_envelope = None
+        self.__port = None
 
         # Initialize some default values
 
@@ -89,33 +108,25 @@ class Client(Log):
                 ))
 
         # Initialize instance of Wsdl using provided information
-        self.log("Initializing new wsdl object using url: {0}".format(
-                                                      wsdl_location), 4)
+        logger.info("Initializing new wsdl object using url: {0}".format(wsdl_location))
 
         # Initialize the Wsdl for this client with any key word args that are valid for that class
         self.__wsdl = Wsdl(
             wsdl_location,
-            tl,
             **dict((key, value) for key, value in kwargs.items() if key in Wsdl.constructor_kwargs)
         )
-
-        # Attributes that are evaluated lazy
-        self.__service = None
-        self.__operation = None
-        self.__schema = None
-        self.__request_envelope = None
 
         # If either operation or service is set, initialize them to starting values
 
         if service is not None:
-            self.log("Initializing service with name {0}".format(service), 5)
+            logger.debug("Initializing service with name {0}".format(service))
             self.service = service
 
         if operation is not None:
-            self.log("Initializing operation with name {0}".format(operation), 5)
+            logger.debug("Initializing operation with name {0}".format(operation))
             self.operation = operation
 
-        self.log("Client successfully initialized", 3)
+        logger.info("Client successfully initialized")
 
     @property
     def service(self) -> Service:
@@ -125,14 +136,14 @@ class Client(Log):
     @service.setter
     def service(self, service):
         found = False
-        self.log("Searching for service with name {0}".format(service), 5)
+        logger.debug("Searching for service with name {0}".format(service))
         for each in self.wsdl.services:
             if each.name == service:
                 self.__service = each
                 found = True
         if not found:
-            self.log("Search for service matching name {0} failed; WDSL does not contain this service"
-                     .format(service), 1)
+            logger.error("Search for service matching name {0} failed; WDSL does not contain this service"
+                         .format(service))
             raise ValueError("WSDL contains no service named {0}".format(service))
 
     @property
@@ -152,7 +163,7 @@ class Client(Log):
     def username(self, name):
         self.__username = name
         if self.password is not None:
-            self.log("Username provided, setting Authentication type to Basic HTTP", 5)
+            logger.debug("Username provided, setting Authentication type to Basic HTTP")
             self.auth = HTTPBasicAuth(self.username, self.password)
 
     @property
@@ -163,7 +174,7 @@ class Client(Log):
     def password(self, p):
         self.__password = p
         if self.username is not None:
-            self.log("Password provided, setting Authentication type to Basic HTTP", 5)
+            logger.debug("Password provided, setting Authentication type to Basic HTTP")
             self.auth = HTTPBasicAuth(self.username, self.password)
 
     @property
@@ -201,8 +212,8 @@ class Client(Log):
                     for operation in port.binding.type.operations:
                         yield (port, operation)
                 else:
-                    self.log('Ignoring operations in port binding "{}" as it is not a supported SOAP version'
-                             .format(port.binding.name), 4)
+                    logger.info('Ignoring operations in port binding "{}" as it is not a supported SOAP version'
+                                .format(port.binding.name))
 
         found = False
         if self.service is None:
@@ -220,14 +231,13 @@ class Client(Log):
                     self.__operation = operation
                     self.__port = port
         if not found:
-            self.log("Search for operation matching name {0} failed; No such operation"
-                     .format(operation_name), 1)
+            logger.error("Search for operation matching name {0} failed; No such operation".format(operation_name), 1)
             raise ValueError("No such operation: {0}".format(operation_name))
         else:
-            self.log("Set client operation to {0}".format(self.operation), 3)
+            logger.info("Set client operation to {0}".format(self.operation))
             # Clear any input object, as a new operation will have a new input object
             try:
-                del self.__inputs
+                self.__inputs = None
             except AttributeError:
                 " Do nothing, as this means inputs were never generated for the previous operation "
 
@@ -259,32 +269,28 @@ class Client(Log):
         inputs is a tuple of iterable soapy.client.inputs.Factory objects. In most cases, there is only one possible
         input message for a given operation, in which case the tuple will have only 1 element.
         """
-        try:
-            return self.__inputs
-        except AttributeError:
+        if self.__inputs is None:
             try:
                 inputs = list()
-                self.log("Building list of inputs for operation {0}".format(self.operation.name), 4)
+                logger.info("Building list of inputs for operation {0}".format(self.operation.name))
                 for each in self.operation.input.parts:
-                    inputs.append(InputFactory(each.type, self.tl))
+                    inputs.append(InputFactory(each.type))
                 self.__inputs = tuple(inputs)
-                return self.__inputs
             except AttributeError:
                 raise RuntimeError("Must set operation before inputs can be determined")
+        return self.__inputs
 
     @property
     def request_envelope(self):
         if self.__request_envelope is None:
             self._build_envelope()
-            self.log("Rendered request envelope: {0}"
-                     .format(self.__request_envelope),
-                     5)
+            logger.debug("Rendered request envelope: {0}".format(self.__request_envelope))
         return self.__request_envelope
 
     def _build_envelope(self):
-        self.log("Initializing marshaller for envelope", 5)
+        logger.debug("Initializing marshaller for envelope")
         self.__request_envelope = soapy.marshal.Envelope(self)
-        self.log("Rendering request envelope", 5)
+        logger.debug("Rendering request envelope")
         self.__request_envelope.render()
 
     def _build_proxy_dict(self) -> dict:
@@ -296,14 +302,14 @@ class Client(Log):
             return {}
 
     def _build_final_proxy_url(self):
-        self.log("Building proxy Url with provided information", 5)
+        logger.debug("Building proxy Url with provided information")
         if self.proxy_user is not None:
             import re
             self.proxy_url = re.sub(r"^(https?://)([^@]+)$",
                                    r"\1{0}:{1}@\2"
                                     .format(self.proxy_user, self.proxy_pass),
                                     self.proxy_url)
-            self.log("Set proxy to '{0}'".format(self.proxy_url), 4)
+            logger.info("Set proxy to '{0}'".format(self.proxy_url))
 
     def __call__(self, **kwargs):
 
@@ -332,29 +338,29 @@ class Client(Log):
             else:
                 raise ValueError("Unexpected keyword argument '{}' for __call__".format(key))
 
-        self.log("Getting ready to call the web service", 4)
+        logger.info("Getting ready to call the web service")
 
-        self.log("Creating necessary HTTP headers", 5)
+        logger.debug("Creating necessary HTTP headers")
         self.headers["SOAPAction"] = '"' + self.port.binding.get_soap_action(self.operation.name) + '"'
-        self.log("Set custom headers to {0}".format(self.headers), 5)
+        logger.debug("Set custom headers to {0}".format(self.headers))
         proxies = self._build_proxy_dict()
 
         if doctor_plugins is not None:
-            self.log("Loading doctors for request", 5)
+            logger.debug("Loading doctors for request")
             for doctor in doctor_plugins:
-                self.log("Applying doctor plugin {}".format(doctor.__class__.__name__), 3)
-                self.request_envelope.xml = doctor(self, self.request_envelope.xml, self.tl)
+                logger.info("Applying doctor plugin {}".format(doctor.__class__.__name__))
+                self.request_envelope.xml = doctor(self, self.request_envelope.xml)
 
         try:
             if self.auth is None:
-                self.log("Calling web service at {0}".format(self.location), 3)
+                logger.info("Calling web service at {0}".format(self.location))
                 self.response = requests.post(self.location,
                                               proxies=proxies,
                                               data=self.request_envelope.xml,
                                               headers=self.headers,
                                               verify=self.secure)
             else:
-                self.log("Calling web service at {0} using Authentication".format(self.location), 3)
+                logger.info("Calling web service at {0} using Authentication".format(self.location))
                 self.response = requests.post(self.location,
                                               auth=self.auth,
                                               proxies=proxies,
@@ -362,11 +368,11 @@ class Client(Log):
                                               headers=self.headers,
                                               verify=self.secure)
         except ConnectionError as e:
-            self.log("Web service connection failed. Check location and try again", 0)
+            logger.critical("Web service connection failed. Check location and try again")
             raise ConnectionError(str(e))
 
-        self.log("Web service call complete, status code is {0}".format(self.response.status_code), 3)
-        self.log("Creating new Response object", 5)
+        logger.info("Web service call complete, status code is {0}".format(self.response.status_code))
+        logger.debug("Creating new Response object")
         return Response(self.response, self)
 
 
@@ -397,7 +403,7 @@ class Response:
         self.faults = tuple()
         faults = list()
         outputs = list()
-        self.__client.log("Initializing list of faults for this operation", 5)
+        logger.debug("Initializing list of faults for this operation")
         for fault in self.__client.operation.faults:
             if fault is not None:
                 for part in fault.parts:
@@ -413,10 +419,9 @@ class Response:
         self.outputs = tuple(outputs)
         self.faults = tuple(faults)
         if self:
-            self.__client.log("Initialized Successful Response object", 4)
+            logger.info("Initialized Successful Response object")
         else:
-            self.__client.log("Initialized Unsuccessful Response object with status code {0}"
-                              .format(self.status), 4)
+            logger.info("Initialized Unsuccessful Response object with status code {0}".format(self.status))
 
     def __bool__(self):
         if not self.__response.ok:
@@ -440,11 +445,11 @@ class Response:
     @property
     def isXml(self) -> bool:
         if self.contentType is None:
-            self.__client.log("Response is missing Content-Type header", 1)
+            logger.error("Response is missing Content-Type header")
             return False
         if "xml" in self.contentType:
             return True
-        self.__client.log("Response is not XML, or has incorrect Content-Type headers", 1)
+        logger.error("Response is not XML, or has incorrect Content-Type headers")
         return False
 
     @property
@@ -479,13 +484,13 @@ class Response:
         :return: dict
         """
         if self.__simple_outputs is None:
-            self.__client.log("Starting recursive consolidation of outputs", 4)
+            logger.info("Starting recursive consolidation of outputs")
             simple_outputs = dict()
             for output in self.outputs:
                 for child in output.children:
                     self._recursive_extract_significant_children(child, simple_outputs)
             self.__simple_outputs = simple_outputs
-            self.__client.log("Significant outputs identified: {0}".format(simple_outputs), 5)
+            logger.debug("Significant outputs identified: {0}".format(simple_outputs))
         return self.__simple_outputs
 
     @property
@@ -496,13 +501,13 @@ class Response:
         """
 
         if self.__simple_faults is None:
-            self.__client.log("Starting recursive consolidation of faults", 4)
+            logger.info("Starting recursive consolidation of faults")
             simple_faults = dict()
             for fault in self.faults:
                 for child in fault.children:
                     self._recursive_extract_significant_children(child, simple_faults)
             self.__simple_faults = simple_faults
-            self.__client.log("Significant faults identified: {}".format(simple_faults), 5)
+            logger.debug("Significant faults identified: {}".format(simple_faults))
         return self.__simple_faults
 
     @staticmethod

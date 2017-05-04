@@ -1,19 +1,20 @@
 """ A class representation of all possible input types """
 
+import logging
 from os import linesep
 from xml.sax.saxutils import quoteattr
 
-from soapy import Log
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 
-class Base(Log):
+class Base:
 
-    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
-        super().__init__(tl)
+    def __init__(self, name, parent, wsdl_type, update_parent=True):
         self.__parent = parent
         self.__name = name
         self.__depth = None
-        self.log("Initializing new {} element with name '{}'".format(self.__class__.__name__, self.name), 4)
+        logger.info("Initializing new {} element with name '{}'".format(self.__class__.__name__, self.name))
         self.__ref = wsdl_type
         # Run the update method here, so we see any type hints that were provided, or any other needed updates
         # See wsdl.types.Base.update() for more information
@@ -51,15 +52,6 @@ class Base(Log):
         if self.parent is not None:
             self.parent.is_empty = state
         self.__empty = state
-
-    @property
-    def is_collection(self) -> bool:
-        """ A collection is a parent-level element that can be repeated. In other words, and element whose value
-        is other elements, but can be duplicated as a set. """
-        if not self.setable and self.repeatable:
-            return True
-        else:
-            return False
 
     @property
     def inner_xml(self) -> str:
@@ -131,7 +123,7 @@ class RenderOptionsMixin:
 
     def render_empty(self):
         """ Configures the element to be included in the rendered envelope even when empty and min_occurs = 0"""
-        self.log("Setting Element {} to be rendered even when empty".format(self.name), 4)
+        logger.info("Setting Element {} to be rendered even when empty".format(self.name))
         self.ref.min_occurs = "1"
         if isinstance(self.parent, RenderOptionsMixin):
             self.parent.render_empty()
@@ -151,6 +143,13 @@ class AttributableMixin:
     def attributes(self) -> tuple:
         return self.__attrs
 
+    @property
+    def all_attributes_empty(self) -> bool:
+        for attr in self.attributes:
+            if attr.value is not None:
+                return False
+        return True
+
     def keys(self):
         return tuple([attr.name for attr in self.attributes])
 
@@ -165,8 +164,8 @@ class AttributableMixin:
 class Element(Base, AttributableMixin, RenderOptionsMixin):
     """A base input Element is capable of being assigned a value ('setable') and is not repeatable"""
 
-    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
-        super().__init__(name, parent, wsdl_type, tl, update_parent)
+    def __init__(self, name, parent, wsdl_type, update_parent=True):
+        super().__init__(name, parent, wsdl_type, update_parent)
         self.__value = None
         AttributableMixin.__init__(self)
 
@@ -181,8 +180,8 @@ class Element(Base, AttributableMixin, RenderOptionsMixin):
 
     @classmethod
     def from_sibling(cls, sib):
-        sib.log("Creating new {} Element from sibling, {}".format(sib.__class__.__name__, sib.name), 4)
-        return cls(sib.name, sib.parent, sib.ref, sib.tl, False)
+        logger.info("Creating new {} Element from sibling, {}".format(sib.__class__.__name__, sib.name))
+        return cls(sib.name, sib.parent, sib.ref, False)
 
     @property
     def value(self) -> str:
@@ -206,11 +205,23 @@ class Container(Base, AttributableMixin, RenderOptionsMixin):
     """ Container elements only contain other elements, and possibly attributes. The can not be set themselves, or
     repeated more than once. They contain attributes that map to other input Elements. """
 
-    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
-        super().__init__(name, parent, wsdl_type, tl, update_parent)
+    def __init__(self, name, parent, wsdl_type, update_parent=True):
+        super().__init__(name, parent, wsdl_type, update_parent)
         AttributableMixin.__init__(self)
         self.__setable = False
         self.__children = list()
+
+    def __setattr__(self, key, value):
+        """ implementation allows settings child Element values without having to reference the .value attribute
+        on the Element, but can set the Element inside the parent Container and the .value attribute will be set
+        """
+        if key in self.__dict__:
+            if isinstance(self.__dict__[key], Element):
+                self.__dict__[key].value = value
+            else:
+                self.__dict__[key] = value
+        else:
+            self.__dict__[key] = value
 
     def __str__(self):
         return "{5}{4}<{0} {1}>{3}{2}{3}{4}</{0}>".format(self.name, " ".join(str(attr) for attr in self.attributes),
@@ -222,11 +233,11 @@ class Container(Base, AttributableMixin, RenderOptionsMixin):
 
     @classmethod
     def from_sibling(cls, sib):
-        sib.log("Creating new {} Element from sibling, {}".format(sib.__class__.__name__, sib.name), 4)
-        new = cls(sib.name, sib.parent, sib.ref, sib.tl, False)
+        logger.info("Creating new {} Element from sibling, {}".format(sib.__class__.__name__, sib.name))
+        new = cls(sib.name, sib.parent, sib.ref, False)
         # Duplicate this process for each child element
         for child in sib.children:
-            sib.log("Appending child {} to new {}".format(child.name, sib.__class__.__name__), 5)
+            logger.debug("Appending child {} to new {}".format(child.name, sib.__class__.__name__))
             new.append_child(child.from_sibling(child))
         return new
 
@@ -239,7 +250,7 @@ class Container(Base, AttributableMixin, RenderOptionsMixin):
         return self.__children
 
     def append_child(self, child: Element):
-        self.log("Appending child with name {} to {}".format(child.name, self.name), 5)
+        logger.debug("Appending child with name {} to {}".format(child.name, self.name))
         name = child.name
         if child.name in dir(self):
             name = "_"+child.name
@@ -250,8 +261,8 @@ class Container(Base, AttributableMixin, RenderOptionsMixin):
 class Repeatable(Base):
     """ Repeatable Elements are like normal elements, except their values are left as iterables, not scalars """
 
-    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
-        super().__init__(name, parent, wsdl_type, tl, update_parent)
+    def __init__(self, name, parent, wsdl_type, update_parent=True):
+        super().__init__(name, parent, wsdl_type, update_parent)
         self.__repeatable = True
         # We need to initialize the zeroth element in our array to be an Element with the same name
         self.__elements = list()
@@ -259,6 +270,13 @@ class Repeatable(Base):
 
     def __getitem__(self, item: int) -> Element:
         return self.__elements[item]
+
+    def __setitem__(self, key, value):
+        if isinstance(key, int):
+            self.__elements[key].value = value
+        else:
+            raise ValueError("Subscript values for {} object must be integers. Invalid: {}"
+                             .format(self.__class__.__name__, value))
 
     def __str__(self):
         return "{4}{1}<!--- Repeatable: {0} --->{3}{2}".format(self.name,
@@ -276,58 +294,29 @@ class Repeatable(Base):
         return self.__elements
 
     @property
-    def values(self) -> tuple:
-        """ A helper method to consolidate the element children's values into one parent-level list.
-        This is currently used by the quick-and-dirty marshalling process as a stop gap. However, it
-        prevents individual list elements from having different attributes. So, once the marshaller
-        classes can be updated to iterate through children elements properly, we can remove this method """
-        try:
-            return self.__values
-        except AttributeError:
-            values = list()
-            for child in self.elements:
-                if child.value is not None:
-                    values.append(child.value)
-            self.__values = tuple(values)
-            return self.__values
-
-    @property
-    def value(self):
-        """ A temporary hack to integrate with outdated marshaller. Will need to fix this in the future. Do not rely on
-        this method being available on Repeatable elements in the future. """
-        if len(self.values):
-            return self.values
-        else:
-            return None
-
-    @value.setter
-    def value(self, val):
-        self.__values = (val,)
-
-    @property
     def repeatable(self):
         return self.__repeatable
 
     @classmethod
     def from_sibling(cls, sib):
-        sib.log("Creating new {} Element from sibling, {}".format(sib.__class__.__name__, sib.name), 4)
-        new = cls(sib.name, sib.parent, sib.ref, sib.tl, False)
+        logger.info("Creating new {} Element from sibling, {}".format(sib.__class__.__name__, sib.name), 4)
+        new = cls(sib.name, sib.parent, sib.ref, False)
         return new
 
     def append(self, value=None) -> None:
         """ Append a new child to the list, providing an optional value. If value is not provided, then an empty new
         element will be created (which could be set using .value later) """
         element = Element.from_sibling(self)
-        self.log("Appending new Element to Repeatable {}".format(self.name), 5)
+        logger.debug("Appending new Element to Repeatable {}".format(self.name))
         element.value = value
-        self.log("Set new Element {} value to '{}'".format(self.name, value), 5)
+        logger.debug("Set new Element {} value to '{}'".format(self.name, value))
         self.__elements.append(element)
 
     def extend(self, *args) -> None:
         """ Extend the list of elements with new elements based on an iterable of values """
-        self.log("Extending new set of values to {}".format(self.name), 4)
+        logger.info("Extending new set of values to {}".format(self.name))
         for value in args:
-            self.log("Creating new Element with value '{}' in '{}'".format(value, self.name), 5)
+            logger.debug("Creating new Element with value '{}' in '{}'".format(value, self.name))
             element = Element.from_sibling(self)
             element.value = value
             self.__elements.append(element)
@@ -337,8 +326,8 @@ class Collection(Repeatable, Container):
     """ Collections hold a list of repeatable Containers
     The Collection interface is defined by being repeatable but not setable."""
 
-    def __init__(self, name, parent, wsdl_type, tl, update_parent=True):
-        super().__init__(name, parent, wsdl_type, tl, update_parent)
+    def __init__(self, name, parent, wsdl_type, update_parent=True):
+        super().__init__(name, parent, wsdl_type, update_parent)
         self.__repeatable = True
         self.__collection = {}
 
@@ -346,13 +335,13 @@ class Collection(Repeatable, Container):
         """ Append a new child Container to the list of elements for this Collection. Values may be provided as a
         dictionary, with keys matching the child element names. If not provided, then an empty container will be
         created. """
-        self.log("Appending new child Container to '{}'".format(self.name), 4)
+        logger.info("Appending new child Container to '{}'".format(self.name))
         container = Container.from_sibling(self)
         self.elements.append(container)
 
     def append_child(self, child: Element):
         super().append_child(child)
-        self.log("Appending new child {1} to elements in Collection {0}".format(self.name, child.name), 5)
+        logger.debug("Appending new child {1} to elements in Collection {0}".format(self.name, child.name))
         for element in self.elements:
             if isinstance(element, Container):
                 element.append_child(child)
@@ -364,36 +353,6 @@ class Collection(Repeatable, Container):
     def __str__(self):
         return "{1}<!--- Repeatable: {0} --->{2}".format(self.name, self._str_indent, linesep) \
                + "{0}".format(linesep).join(str(el) for el in self.elements)
-
-    @property
-    def collection(self) -> dict:
-        """ A helper method to consolidate the element children's values into one parent-level dict.
-        This is currently used by the quick-and-dirty marshalling process as a stop gap. However, it
-        prevents individual collection children from having different attributes. So, once the marshaller
-        classes can be updated to iterate through children elements properly, we can remove this method
-        """
-
-        def walk_container(co):
-            for child in co.children:
-                if isinstance(child, Container):
-                    walk_container(child)
-                elif isinstance(child, Repeatable) and child[0].value is not None:
-                    try:
-                        self.__collection[child.name].append(child.values)
-                    except KeyError:
-                        self.__collection.update({child.name: [child.values]})
-                elif isinstance(child, Element) and child.value is not None:
-                    try:
-                        self.__collection[child.name].append(child.value)
-                    except KeyError:
-                        self.__collection.update({child.name: [child.value]})
-
-        self.__collection = {}
-
-        for container in self.elements:
-            walk_container(container)
-
-        return self.__collection
 
 
 class Attribute:
@@ -423,33 +382,36 @@ class Attribute:
         return self.name + "=" + str(self.value)
 
 
-class Factory(Log):
+class Factory:
     """ Factory creates an input object class structure from the WSDL Type elements that represents the possible
     inputs to the provided Message. The Factory.root_element object represents the top-level message, and child
     input elements may be retrieved through normal attribute notation, using the . (dot) operator. You can also
     print() a Factory class to see a pseudo XML representation of the possible inputs, and their current values.
     """
 
-    def __init__(self, root_element, tl):
-        super().__init__(tl)
-        self.log("Initializing new Factory instance for root element '{}'".format(root_element), 3)
+    def __init__(self, root_element):
+        logger.info("Initializing new Factory instance for root element '{}'".format(root_element))
         elements = list()
         inputs = list()
-        self.log("Building list of all elements for this Part", 4)
+        logger.info("Building list of all elements for this Part")
         Factory._recursive_extract_elements(elements, root_element)
         for element in elements:
             name = element[0].name
-            self.log("Processing WSDL element {}".format(name), 5)
+            logger.debug("Processing WSDL element {}".format(name))
             # Find the parent InputElement to pass to the child if there is a parent
             if element[1] is not None:
                 for input in inputs:
                     if element[1] is input.ref:
-                        self.log("Setting parent element for {} to '{}'".format(name, input.name), 5)
-                        inputs.append(self._select_class(element)(name, input, element[0], tl))
+                        logger.debug("Setting parent element for {} to '{}'".format(name, input.name))
+                        inputs.append(self._select_class(element)(name, input, element[0]))
             else:
-                self.root_element = self._select_class(element)(name, None, element[0], tl)
+                self.root_element = self._select_class(element)(name, None, element[0])
                 inputs.append(self.root_element)
         self.items = inputs
+
+    def __getattr__(self, item):
+        """ Enable attribute references on Factory object itself to return attributes on root_element instead """
+        return getattr(self.root_element, item)
 
     def __str__(self):
         return str(self.root_element)
@@ -473,9 +435,9 @@ class Factory(Log):
             (False, False): Container,
             (False, True): Collection
         }
-        self.log("Creating {} type for input message element {}".format(
+        logger.info("Creating {} type for input message element {}".format(
                   switch[setable, repeatable].__name__,
-                  element[0].name), 4)
+                  element[0].name))
         return switch[setable, repeatable]
 
     @staticmethod

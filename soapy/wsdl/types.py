@@ -1,9 +1,14 @@
-from soapy.wsdl.element import Element
-
 """ Types are XML tags the reside inside a schema tag, inside the types tag
  They are significantly different from normal elements, as they represent the elements in
  the SOAP body as opposed to the WSDL itself, and contain helper methods to assist the Marshaller to render
  correct XML elements"""
+
+import logging
+
+from soapy.wsdl.element import Element
+
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 
 class TypeBase(Element):
@@ -30,7 +35,7 @@ class TypeBase(Element):
         try:
             c_update = self.update_child_elements()
             if c_update:
-                self.log("Found update item(s) for Children: {0}".format(c_update), 4)
+                logger.info("Found update item(s) for Children: {0}".format(c_update))
                 child_updates.update(c_update)
         except AttributeError:
             """ Do nothing, we are in a TypeElement object """
@@ -51,18 +56,18 @@ class TypeBase(Element):
         # Lastly, apply all child updates to each child element
 
         if len(child_updates) > 0:
-            self.log("Processing all parent-induced updates for all children", 5)
+            logger.debug("Processing all parent-induced updates for all children")
             for child in children:
                 for attr, value in child_updates.items():
                     child.bs_element[attr] = value
         self.__element_children = tuple(children)
-        self.log("All TypeElement children identified", 5)
+        logger.debug("All TypeElement children identified")
         return self.__element_children
 
     @property
     def element_children(self) -> tuple:
         if self.__element_children is None:
-            self.log("In recursive process of isolating and updating TypeElement children", 5)
+            logger.debug("In recursive process of isolating and updating TypeElement children")
             self._process_element_children([self.bs_element])
         return self.__element_children
 
@@ -86,12 +91,12 @@ class TypeContainer(TypeBase):
         """ Returns the attributes defined within this tag, and any non-element children """
         if self.__parent_attributes is None:
             attrs = list()
-            self.log("In recursive process of consolidating attributes. Current object is '{0}' the {1}"
-                     .format(self.name, self.tag), 5)
+            logger.debug("In recursive process of consolidating attributes. Current object is '{0}' the {1}"
+                         .format(self.name, self.tag))
             attributes = self.bs_element('attribute', recursive=False)
             for attribute in attributes:
                 attr = Attribute(attribute, self.parent)
-                self.log("Created attribute {0}".format(attr), 5)
+                logger.debug("Created attribute {0}".format(attr))
                 attrs.append(attr)
             for child in self.children:
                 try:
@@ -135,7 +140,7 @@ class TypeElement(TypeBase):
         for child in self.children:
             if isinstance(child, TypeContainer):
                 child.update(self, updates)
-        self.log("Updating {} with attributes from child elements: {}".format(self.name, updates), 5)
+        logger.debug("Updating {} with attributes from child elements: {}".format(self.name, updates))
         for key, value in updates.items():
             try:
                 self.bs_element[key].append(value)
@@ -145,7 +150,7 @@ class TypeElement(TypeBase):
     @property
     def attributes(self) -> tuple:
         if self.__attributes is None:
-            self.log("Initializing list of attributes for element {0}".format(self.name), 5)
+            logger.debug("Initializing list of attributes for element {0}".format(self.name))
             attributes = self.bs_element('attribute', recursive=False)
             for attribute in attributes:
                 attributes.append(Attribute(attribute, self.parent))
@@ -292,7 +297,7 @@ class Restriction(TypeContainer):
 
     @property
     def children(self) -> tuple:
-        self.log("Adding base child of Restriction type '{}'".format(self.name), 5)
+        logger.debug("Adding base child of Restriction type '{}'".format(self.name))
         children = list()
         try:
             child = self.parent.find_type_by_name(self.bs_element['base'])

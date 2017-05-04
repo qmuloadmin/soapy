@@ -1,6 +1,11 @@
+""" Models are pythonic objects representing the XML tags in a WSDL, but outside of the Types tag """
+
+import logging
+
 from soapy.wsdl.element import Element
 
-""" Models are pythonic objects representing the XML tags in a WSDL, but outside of the Types tag """
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 
 class Service(Element):
@@ -14,7 +19,7 @@ class Service(Element):
     @property
     def ports(self) -> tuple:
         if self.__ports is None:
-            self.log("Initializing list of ports defined for service {0}".format(self.name), 5)
+            logger.debug("Initializing list of ports defined for service {0}".format(self.name))
             ports = list()
             for port in self.bs_element('port', recursive=False):
                 ports.append(Port(port, self.parent))
@@ -32,7 +37,7 @@ class PortType(Element):
     @property
     def operations(self) -> tuple:
         if self.__operations is None:
-            self.log("Initializing operations for portType {0} from wsdl".format(self.name), 5)
+            logger.debug("Initializing operations for portType {0} from wsdl".format(self.name))
             operations = list()
             for operation in self.bs_element('operation', recursive=False):
                 operations.append(Operation(operation, self.parent))
@@ -55,7 +60,7 @@ class Binding(Element):
         soapBinding = bs_element('binding', recursive=False)[0]
         self.__ns = soapBinding.namespace
         if not soapBinding.get('style', "document") == "document":
-            self.log("Binding style not set to document. Soapy can't handle non-document styles", 0)
+            logger.critical("Binding style not set to document. Soapy can't handle non-document styles")
             raise TypeError("Binding style not set to document. Soapy can't handle non-document styles")
 
         # Attributes to be evaluated lazy
@@ -64,7 +69,7 @@ class Binding(Element):
     @property
     def type(self) -> PortType:
         if self.__type is None:
-            self.log("Initializing portType from binding {0}".format(self.name), 5)
+            logger.debug("Initializing portType from binding {0}".format(self.name))
             (ns, name) = self.bs_element['type'].split(":")
             self.__type = PortType.from_name(name, self.parent)
         return self.__type
@@ -84,11 +89,10 @@ class Binding(Element):
                 try:
                     return soap_op['soapAction']
                 except KeyError:
-                    self.log("Binding operation does not contain a soapAction element", 2)
+                    logger.warning("Binding operation does not contain a soapAction element")
                     return None
 
-        self.log("Could not find matching operation, {0} in binding {1}".format(
-            op_name, self.name), 2)
+        logger.warning("Could not find matching operation, {0} in binding {1}".format(op_name, self.name), 2)
 
 
 class Port(Element):
@@ -102,7 +106,7 @@ class Port(Element):
     @property
     def binding(self) -> Binding:
         if self.__binding is None:
-            self.log("Initializing binding attribute for port {0}".format(self.name), 5)
+            logger.debug("Initializing binding attribute for port {0}".format(self.name))
             binding = self.bs_element['binding']
             (ns, name) = binding.split(':')
             self.__binding = Binding.from_name(name, self.parent)
@@ -111,9 +115,9 @@ class Port(Element):
     @property
     def location(self) -> str:
         if self.__location is None:
-            self.log("Initializing location of Port based on address element", 5)
+            logger.debug("Initializing location of Port based on address element")
             self.__location = self.bs_element('address', recursive=False)[0]['location']
-            self.log("Initialized location to {0}".format(self.__location), 4)
+            logger.info("Initialized location to {0}".format(self.__location))
         return self.__location
 
     @location.setter
@@ -130,7 +134,7 @@ class Message(Element):
     @property
     def parts(self) -> tuple:
         if self.__parts is None:
-            self.log("Initializing parts for message {0}".format(self.name), 5)
+            logger.debug("Initializing parts for message {0}".format(self.name))
             parts = list()
             for part in self.bs_element('part', recursive=False):
                 parts.append(Part(part, self.parent))
@@ -192,6 +196,6 @@ class Operation(Element):
                     faults.append(Message.from_name(each.get("message").split(":")[1], self.parent))
                 self.__faults = tuple(faults)
             else:
-                self.log("Operation has no fault message specified", 2)
+                logger.warning("Operation has no fault message specified")
                 self.__faults = tuple()
         return self.__faults
