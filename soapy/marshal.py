@@ -2,7 +2,7 @@ import logging
 from abc import ABCMeta, abstractmethod, abstractproperty
 from xml.sax.saxutils import escape
 
-from soapy.inputs import Repeatable, Element as InputElement
+from soapy.inputs import Repeatable, Element as InputElement, Base as InputBase
 
 # Initialize logger for this module
 logger = logging.getLogger(__name__)
@@ -217,27 +217,12 @@ class Element(Marshaller):
         logger.debug("Initializing new Element based on {0}".format(element.name))
         self.__part = part
         self.__definition = element
-        self.__children = tuple(
-            [Element(self.parent, child, self.part, False)
-             for child in self.definition.element_children]
-        )
         self.children_have_values = False
         self.__xml = ""
         self.__open_tag = ""
         self.__close_tag = ""
         self.__inner_xml = ""
         self.should_be_rendered = True
-
-        # Check to see if the schema of the element is the same as the body/envelope default tns.
-        # If not, then we need to update the Envelope with a new xmlns definition and use a different
-        # ns in our tags
-
-        if self.definition.schema.name is not self.parent.schema.name:
-            self.parent.register_namespace(self.definition.schema.name,
-                                           self)
-            self.tns = self.parent.tns_map[self]
-        else:
-            self.tns = self.parent.target_ns
 
         # Associate input obj from client with this Element rendering
 
@@ -250,12 +235,23 @@ class Element(Marshaller):
         else:
             self.__input_obj = input_obj
 
+        # Check to see if the schema of the element is the same as the body/envelope default tns.
+        # If not, then we need to update the Envelope with a new xmlns definition and use a different
+        # ns in our tags
+
+        if self.definition.schema.name is not self.parent.schema.name:
+            self.parent.register_namespace(self.definition.schema.name,
+                                           self)
+            self.tns = self.parent.tns_map[self]
+        else:
+            self.tns = self.parent.target_ns
+
+        children = list()
         # Repeatable types shouldn't be rendered under any circumstances, so immediately set to false
         # And we need to add duplicate children with separate values for each child input.Element so they can
         # be rendered individually
         if isinstance(self.input_obj, Repeatable):
             self.should_be_rendered = False
-            children = list()
             for item in self.input_obj:
                 children.append(
                     Element(
@@ -266,7 +262,19 @@ class Element(Marshaller):
                         item
                     )
                 )
-            children.extend(self.children)
+            self.__children = tuple(children)
+        else:
+            # Build the tuple of children, ensuring that the correct input object is assigned to each child,
+            # allowing for overlapping names by using the prefix '_' notation if the name of the input
+            # overlaps with a built-in attribute until the right InputElement type is found.
+            for child in self.definition.element_children:
+                attr_name = child.name
+                while not isinstance(getattr(self.input_obj, attr_name), InputBase):
+                    attr_name = "_" + attr_name
+                children.append(
+                    Element(self.parent, child, self.part, False, getattr(self.input_obj, attr_name))
+                )
+
             self.__children = tuple(children)
 
         # Render the open tag for this element before anything else is done if should be rendered
@@ -378,41 +386,36 @@ class Element(Marshaller):
         """
 
         # Top level short circuit for input elements that aren't rendered -- like Repeatables and Collections
+
         if not self.should_be_rendered:
+            logger.debug("Processing children values for non-rendered input object {}".format(self.definition.name))
             for each in self.children:
                 each.render()
                 self.__xml += each.xml
+                pass
             return
 
-        # Short circuit if element is empty and optional or nillable, and has no children
+        logger.info("Starting render of contents of object '{}'".format(self.definition.name))
 
-        if self.input_obj.setable and self.input_obj.inner_xml is None:
+        # Render each child element to make sure parent/child updates are propagated before we actually render
+        # the static XML. Then, check to see if all children are empty.
+
+        if not self.input_obj.setable:
+            for each in self.children:
+                each.render()
+                if each.children_significant() is True:
+                    self.children_have_values = True
+
+        if self.input_obj.inner_xml is None:  # short circuit if empty after processing empty tag
             if self._process_null_values():
                 return
 
-        # Build the close tag
+        # Build the close tag for Containers so child elements can render within open and close tags
 
         if (self.parent.schema.element_form == "qualified" and self.definition.form == "qualified") or self.__top_level:
             self.__close_tag = "</{0}:{1}>\n".format(self.tns, self.definition.name.strip())
         else:
             self.__close_tag = "</{0}>\n".format(self.definition.name.strip())
-
-        # Render each child element to make sure parent/child updates are propagated
-        # before we actually render the static XML
-        # Then, check to see if all children are empty.
-        # If this is a collection element, then use alternative render for children to the entire collection can be
-        # rendered appropriately
-
-        for each in self.children:
-            each.render()
-            if each.children_significant() is True:
-                self.children_have_values = True
-
-        # If all children are empty and aren't required, process null values to render element correctly, short circuit
-
-        if not self.children_have_values and int(self.definition.min_occurs) == 0:
-            if self._process_null_values():
-                return
 
         # Update inner xml, either using child xml values, innerXml from inputObj, or the value from inputObj
 
@@ -422,7 +425,8 @@ class Element(Marshaller):
         elif isinstance(self.input_obj, InputElement):
             # Only a single value should have been provided (will get type-casted to string)
             self._process_single_value(self.input_obj.value)
-        else:  # if this is only a container for child elements
+        elif self.children_have_values or self.definition.min_occurs != "0":
+            # if this is only a container for child elements, and they have values or attributes
             self.__inner_xml += "\n"
             for each in self.children:
                 self.__inner_xml += each.xml

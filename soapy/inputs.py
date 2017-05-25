@@ -154,7 +154,7 @@ class AttributableMixin:
         return tuple([attr.name for attr in self.attributes])
 
     def __getitem__(self, item):
-        """ retrieves the attribute on the element in bs4-style"""
+        """ retrieves the attribute on the element in bs4-style """
         for attr in self.attributes:
             if attr.name == item:
                 return attr
@@ -162,7 +162,7 @@ class AttributableMixin:
 
 
 class Element(Base, AttributableMixin, RenderOptionsMixin):
-    """A base input Element is capable of being assigned a value ('setable') and is not repeatable"""
+    """ A base input Element is capable of being assigned a value ('setable') and is not repeatable """
 
     def __init__(self, name, parent, wsdl_type, update_parent=True):
         super().__init__(name, parent, wsdl_type, update_parent)
